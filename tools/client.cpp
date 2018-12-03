@@ -43,7 +43,6 @@ void client::start()
         char* message = zstr_recv(receiver_socket_);
         std::cout << message << std::endl;
         free(message);
-        sleep(0.1);
     }
 }
 
