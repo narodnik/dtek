@@ -1,6 +1,7 @@
 #ifndef DARK_BLOCKCHAIN_HPP
 #define DARK_BLOCKCHAIN_HPP
 
+#include <bitcoin/bitcoin.hpp>
 #include <bitcoin/database/primitives/record_manager.hpp>
 #include <bitcoin/database/memory/file_storage.hpp>
 
