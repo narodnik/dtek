@@ -54,5 +54,26 @@ uint64_t wallet::balance()
     return balance;
 }
 
+wallet_index_list wallet::select_outputs(uint64_t send_value)
+{
+    wallet_index_list selected;
+    dark::WalletTable wallet_table;
+
+    uint64_t total_amount = 0;
+    for(const auto& row: db_(
+        select(all_of(wallet_table)).from(wallet_table).unconditionally()))
+    {
+        uint32_t index = row.idx;
+        selected.push_back(index);
+        uint64_t value = row.value;
+        total_amount += value;
+        if (total_amount >= send_value)
+            break;
+    }
+    if (total_amount < send_value)
+        return wallet_index_list();
+    return selected;
+}
+
 } // namespace dark
 

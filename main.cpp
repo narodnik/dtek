@@ -71,6 +71,13 @@ bool send_money(dark::wallet& wallet, uint64_t amount)
         std::cerr << "Error balance too low for transaction" << std::endl;
         return false;
     }
+
+    auto selected = wallet.select_outputs(amount);
+    std::cout << "Selected:";
+    for (auto index: selected)
+        std::cout << " " << index;
+    std::cout << std::endl;
+
     return true;
 }
 

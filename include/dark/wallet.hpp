@@ -13,6 +13,8 @@ namespace sql = sqlpp::sqlite3;
 
 const extern bc::ec_point ec_point_H;
 
+typedef std::vector<uint32_t> wallet_index_list;
+
 class wallet
 {
 public:
@@ -22,6 +24,8 @@ public:
         const bc::ec_secret& secret, uint64_t value);
 
     uint64_t balance();
+
+    wallet_index_list select_outputs(uint64_t send_value);
 private:
     sql::connection_config config_;
     sql::connection db_;
