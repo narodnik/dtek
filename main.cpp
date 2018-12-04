@@ -146,7 +146,9 @@ blockchain_server_request blockchain_server::receive()
     frame = zmsg_pop(message);
     assert(frame);
     auto* data = zframe_data(frame);
-    std::copy(data, data + zframe_size(frame), request.data.begin());
+    size_t data_size = zframe_size(frame);
+    request.data.resize(data_size);
+    std::copy(data, data + data_size, request.data.begin());
     zframe_destroy(&frame);
 
     zmsg_destroy(&message);
@@ -275,7 +277,7 @@ private:
 
 blockchain_client::blockchain_client()
 {
-    socket_ = zsock_new(ZMQ_REP);
+    socket_ = zsock_new(ZMQ_REQ);
     zsock_connect(socket_, "tcp://localhost:8887");
 }
 blockchain_client::~blockchain_client()
@@ -362,7 +364,7 @@ bc::data_chunk blockchain_client::receive_response()
 {
     zmsg_t* message = zmsg_recv(socket_);
     assert(message);
-    assert(zmsg_size(message) == 2);
+    assert(zmsg_size(message) == 1);
 
     zframe_t* frame = zmsg_pop(message);
     assert(frame);
@@ -474,7 +476,7 @@ int main(int argc, char** argv)
         ("write", "Write point",  cxxopts::value<std::string>())
         ("w,wallet", "Path to wallet",  cxxopts::value<std::string>())
         ("r,read", "Read all points")
-        ("d,delete", "Delete block", cxxopts::value<size_t>())
+        ("d,delete", "Delete row", cxxopts::value<size_t>())
         ("c1", "Calculate point #1", cxxopts::value<uint32_t>())
         ("c2", "Calculate point #2", cxxopts::value<uint32_t>())
         ("b,balance", "Show balance")
