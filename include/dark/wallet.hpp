@@ -5,6 +5,7 @@
 #include <sqlpp11/sqlite3/sqlite3.h>
 #include <sqlpp11/sqlpp11.h>
 #include <sqlcipher/sqlite3.h>
+#include <dark/blockchain.hpp>
 #include "wallet_sql.h"
 
 namespace dark {
@@ -13,7 +14,12 @@ namespace sql = sqlpp::sqlite3;
 
 const extern bc::ec_point ec_point_H;
 
-typedef std::vector<uint32_t> wallet_index_list;
+struct selected_output
+{
+    output_index_type index;
+    bc::ec_scalar key;
+};
+typedef std::vector<selected_output> selected_output_list;
 
 class wallet
 {
@@ -25,7 +31,7 @@ public:
 
     uint64_t balance();
 
-    wallet_index_list select_outputs(uint64_t send_value);
+    selected_output_list select_outputs(uint64_t send_value);
 private:
     sql::connection_config config_;
     sql::connection db_;

@@ -1,5 +1,6 @@
 #include <dark/blockchain.hpp>
 
+#include <memory>
 #include <boost/filesystem.hpp>
 #include <boost/range/irange.hpp>
 

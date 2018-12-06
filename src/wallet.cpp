@@ -54,9 +54,9 @@ uint64_t wallet::balance()
     return balance;
 }
 
-wallet_index_list wallet::select_outputs(uint64_t send_value)
+selected_output_list wallet::select_outputs(uint64_t send_value)
 {
-    wallet_index_list selected;
+    selected_output_list selected;
     dark::WalletTable wallet_table;
 
     uint64_t total_amount = 0;
@@ -64,14 +64,20 @@ wallet_index_list wallet::select_outputs(uint64_t send_value)
         select(all_of(wallet_table)).from(wallet_table).unconditionally()))
     {
         uint32_t index = row.idx;
-        selected.push_back(index);
+        bc::ec_secret secret;
+        bool rc = bc::decode_base16(secret, row.privateKey);
+        BITCOIN_ASSERT(rc);
+        selected.push_back(selected_output{
+            index,
+            secret
+        });
         uint64_t value = row.value;
         total_amount += value;
         if (total_amount >= send_value)
             break;
     }
     if (total_amount < send_value)
-        return wallet_index_list();
+        return selected_output_list();
     return selected;
 }
 

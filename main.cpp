@@ -8,7 +8,17 @@
 
 namespace dark {
 
-typedef size_t input_index_type;
+struct schnorr_signature
+{
+    bc::ec_point commitment;
+    bc::ec_scalar proof;
+};
+
+// sign
+// combine
+// verify
+
+typedef output_index_type input_index_type;
 typedef std::vector<input_index_type> input_index_list;
 
 struct transaction_output
@@ -23,6 +33,7 @@ struct transaction_kernel
 {
     uint64_t fee;
     bc::ec_point excess;
+    schnorr_signature signature;
 };
 
 struct transaction
@@ -64,9 +75,95 @@ void show_balance(dark::wallet& wallet)
     std::cout << wallet.balance() << std::endl;
 }
 
+struct assign_output_result
+{
+    dark::output_index_type index;
+    bc::ec_secret secret;
+    bc::ec_point point;
+    bc::ring_signature rangeproof;
+};
+
+assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
+{
+    constexpr size_t proofsize = 64;
+    typedef std::array<bc::ec_scalar, proofsize> subkeys_list;
+
+    subkeys_list subkeys;
+    auto combined_key = bc::ec_scalar::zero;
+
+    // Create private key by summing 64 sub private keys
+    // The 64 subkeys will be used for constructing the rangeproof
+    for (auto& subkey: subkeys)
+    {
+        auto& subkey_secret = subkey.secret();
+        bc::pseudo_random::fill(subkey_secret);
+
+        combined_key += subkey;
+    }
+    const auto& secret = combined_key.secret();
+
+    auto value_secret = bc::ec_scalar::zero.secret();
+    auto serial = bc::make_unsafe_serializer(value_secret.end() - 4);
+    serial.write_4_bytes_big_endian(value);
+
+    std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
+    std::cout << "scalar: " << bc::encode_base16(value_secret)
+        << std::endl;
+
+    auto point = secret * bc::ec_point::G + value_secret * dark::ec_point_H;
+
+    std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
+
+    // Allocate index
+    // Add to blockchain
+    //dark::blockchain chain;
+    dark::blockchain_client chain;
+    auto index = chain.put(point);
+
+    // Add to wallet
+    wallet.insert(index, point, secret, value);
+
+    bc::ring_signature rangeproof;
+    for (size_t i = 0; i < proofsize; ++i)
+    {
+    }
+
+    return { index, value_secret, point, rangeproof };
+}
+
+void add_output(dark::wallet& wallet, uint64_t value)
+{
+    // Create private key
+    bc::ec_secret secret;
+    bc::pseudo_random::fill(secret);
+
+    auto value_secret = bc::ec_scalar::zero.secret();
+    auto serial = bc::make_unsafe_serializer(value_secret.end() - 4);
+    serial.write_4_bytes_big_endian(value);
+
+    std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
+    std::cout << "scalar: " << bc::encode_base16(value_secret)
+        << std::endl;
+
+    auto point = secret * bc::ec_point::G + value_secret * dark::ec_point_H;
+
+    std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
+
+    // Allocate index
+    // Add to blockchain
+    //dark::blockchain chain;
+    dark::blockchain_client chain;
+    auto index = chain.put(point);
+
+    // Add to wallet
+    wallet.insert(index, point, secret, value);
+}
+
 bool send_money(dark::wallet& wallet, uint64_t amount)
 {
-    if (amount > wallet.balance())
+    uint64_t balance = wallet.balance();
+
+    if (amount > balance)
     {
         std::cerr << "Error balance too low for transaction" << std::endl;
         return false;
@@ -74,11 +171,55 @@ bool send_money(dark::wallet& wallet, uint64_t amount)
 
     auto selected = wallet.select_outputs(amount);
     std::cout << "Selected:";
-    for (auto index: selected)
-        std::cout << " " << index;
+    for (const auto& row: selected)
+        std::cout << " " << row.index;
     std::cout << std::endl;
 
+    dark::transaction tx;
+    for (const auto& row: selected)
+        tx.inputs.push_back(row.index);
+
+    BITCOIN_ASSERT(amount <= balance);
+    // If we have remaining coins after sending then compute change output
+    if (amount < balance)
+    {
+        // calculate change amount
+        auto change_amount = balance - amount;
+        BITCOIN_ASSERT(amount + change_amount == balance);
+        std::cout << "Change: " << change_amount << std::endl;
+        // Create change output
+        // Create 64 private keys, which are used for the rangeproof
+        auto change_output = assign_output(wallet, change_amount);
+        // Modify transaction
+        tx.outputs.push_back(dark::transaction_output{
+            change_output.point,
+            change_output.rangeproof
+        });
+    }
+
+    // compute excess
+    // compute signature
+
+    // connect to messenging service
+    // send tx, amount with command
+
+    // wait for server to broadcast ID of change output back
+
     return true;
+}
+
+void receive_money(dark::wallet& wallet)
+{
+    // connect to messenging service
+    // wait for tx, amount with command
+    // create new output
+    // compute excess
+    // compute signature
+
+    // combine excess and signature
+    // broadcast completed tx to server
+
+    // wait for server to broadcast ID of our output back
 }
 
 void show_help()
@@ -140,35 +281,7 @@ bool remove_point(size_t index)
     return true;
 }
 
-void add_output(dark::wallet& wallet, uint64_t value)
-{
-    // Create private key
-    bc::ec_secret secret;
-    bc::pseudo_random::fill(secret);
-
-    auto value_secret = bc::ec_scalar::zero.secret();
-    auto serial = bc::make_unsafe_serializer(value_secret.end() - 4);
-    serial.write_4_bytes_big_endian(value);
-
-    std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
-    std::cout << "scalar: " << bc::encode_base16(value_secret)
-        << std::endl;
-
-    auto point = secret * bc::ec_point::G + value_secret * dark::ec_point_H;
-
-    std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
-
-    // Allocate index
-    // Add to blockchain
-    //dark::blockchain chain;
-    dark::blockchain_client chain;
-    auto index = chain.put(point);
-
-    // Add to wallet
-    wallet.insert(index, point, secret, value);
-}
-
-int main(int argc, char** argv)
+int foo(int argc, char** argv)
 {
     cxxopts::Options options("darktech", "dark polytechnology");
     options.add_options()
@@ -181,6 +294,7 @@ int main(int argc, char** argv)
         ("c2", "Calculate point #2", cxxopts::value<uint32_t>())
         ("b,balance", "Show balance")
         ("s,send", "Send money", cxxopts::value<uint64_t>())
+        ("receive", "Receive funds")
         ("a,add", "Add fake output", cxxopts::value<uint64_t>())
         ("server", "Run blockchain server")
     ;
@@ -228,6 +342,11 @@ int main(int argc, char** argv)
         dark::wallet wallet(wallet_path);
         uint64_t amount = result["send"].as<uint64_t>();
         return send_money(wallet, amount) ? 0 : -1;
+    }
+    else if (result.count("receive"))
+    {
+        dark::wallet wallet(wallet_path);
+        receive_money(wallet);
     }
     else if (result.count("add"))
     {
