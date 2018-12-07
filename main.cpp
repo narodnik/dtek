@@ -4,64 +4,19 @@
 #include <cxxopts.hpp>
 #include <dark/blockchain_client.hpp>
 #include <dark/blockchain_server.hpp>
+#include <dark/transaction.hpp>
 #include <dark/wallet.hpp>
+#include <QMessageBox>
+#include "ui_darkwallet.h"
 
-namespace dark {
-
-struct schnorr_signature
+void calc(uint32_t value_1, uint32_t value_2)
 {
-    bc::ec_point commitment;
-    bc::ec_scalar proof;
-};
+    std::cout << "Calculating: " << value_1 << " G + "
+        << value_2 << " H" << std::endl;
 
-// sign
-// combine
-// verify
-
-typedef output_index_type input_index_type;
-typedef std::vector<input_index_type> input_index_list;
-
-struct transaction_output
-{
-    bc::ec_point output;
-    bc::ring_signature rangeproof;
-};
-
-typedef std::vector<transaction_output> output_list;
-
-struct transaction_kernel
-{
-    uint64_t fee;
-    bc::ec_point excess;
-    schnorr_signature signature;
-};
-
-struct transaction
-{
-    input_index_list inputs;
-    output_list outputs;
-    transaction_kernel kernel;
-};
-
-typedef std::vector<bc::ec_point> outputs_type;
-
-} // namespace dark
-
-void calc(uint32_t value1, uint32_t value2)
-{
-    std::cout << "Calculating: " << value1 << " G + "
-        << value2 << " H" << std::endl;
-
-    auto secret1 = bc::ec_scalar::zero.secret();
-    auto secret2 = bc::ec_scalar::zero.secret();
-
-    auto serial1 = bc::make_unsafe_serializer(secret1.end() - 4);
-    serial1.write_4_bytes_big_endian(value1);
-
-    auto serial2 = bc::make_unsafe_serializer(secret2.end() - 4);
-    serial2.write_4_bytes_big_endian(value2);
-
-    const auto result = secret1 * bc::ec_point::G + secret2 * bc::ec_point::G;
+    const auto result =
+        bc::ec_scalar(value_1) * bc::ec_point::G +
+        bc::ec_scalar(value_2) * dark::ec_point_H;
     std::cout << bc::encode_base16(result.point()) << std::endl;
     std::cout << std::endl;
 
@@ -80,7 +35,7 @@ struct assign_output_result
     dark::output_index_type index;
     bc::ec_secret secret;
     bc::ec_point point;
-    bc::ring_signature rangeproof;
+    dark::transaction_rangeproof rangeproof;
 };
 
 assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
@@ -123,9 +78,21 @@ assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
     // Add to wallet
     wallet.insert(index, point, secret, value);
 
-    bc::ring_signature rangeproof;
-    for (size_t i = 0; i < proofsize; ++i)
+    // [d_1 G + v_(0|1) H] + [d_2 G + v_(0|2) H] + [d_3 G + v_(0|4) H] + ...
+    dark::transaction_rangeproof rangeproof;
+    rangeproof.commitments.reserve(proofsize);
+    for (size_t i = 1; i <= proofsize; ++i)
     {
+        BITCOIN_ASSERT(i < subkeys.size());
+        const auto& subkey = subkeys[i];
+
+        const auto public_key = subkey * bc::ec_point::G;
+        // v = 0
+        rangeproof.commitments.push_back(public_key);
+        // v = 2^i
+        uint64_t value_2i = std::pow(2, i);
+
+        // 2 keys
     }
 
     return { index, value_secret, point, rangeproof };
@@ -159,21 +126,31 @@ void add_output(dark::wallet& wallet, uint64_t value)
     wallet.insert(index, point, secret, value);
 }
 
-bool send_money(dark::wallet& wallet, uint64_t amount)
+template <typename ShowErrorFunction>
+bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
+    ShowErrorFunction show_error)
 {
     uint64_t balance = wallet.balance();
 
     if (amount > balance)
     {
-        std::cerr << "Error balance too low for transaction" << std::endl;
+        show_error("Balance too low for transaction.");
         return false;
     }
 
+    if (amount == 0)
+    {
+        show_error("Cannot send 0.");
+        return false;
+    }
+
+    stream << "Sending: " << amount << std::endl;
+
     auto selected = wallet.select_outputs(amount);
-    std::cout << "Selected:";
+    stream << "Selected:";
     for (const auto& row: selected)
-        std::cout << " " << row.index;
-    std::cout << std::endl;
+        stream << " " << row.index;
+    stream << std::endl;
 
     dark::transaction tx;
     for (const auto& row: selected)
@@ -186,7 +163,7 @@ bool send_money(dark::wallet& wallet, uint64_t amount)
         // calculate change amount
         auto change_amount = balance - amount;
         BITCOIN_ASSERT(amount + change_amount == balance);
-        std::cout << "Change: " << change_amount << std::endl;
+        stream << "Change: " << change_amount << std::endl;
         // Create change output
         // Create 64 private keys, which are used for the rangeproof
         auto change_output = assign_output(wallet, change_amount);
@@ -263,6 +240,30 @@ void read_all()
     }
 }
 
+void set_commit_table(QTableWidget* table)
+{
+    table->horizontalHeader()->setSectionResizeMode(
+        QHeaderView::ResizeToContents);
+    table->setRowCount(0);
+
+    dark::blockchain_client chain;
+    for (auto i: boost::irange(chain.count()))
+    {
+        if (!chain.exists(i))
+            continue;
+        const size_t index = table->rowCount();
+        table->setRowCount(index + 1);
+
+        auto point = chain.get(i);
+        QString point_string = QString::fromStdString(
+            bc::encode_base16(point));
+        QTableWidgetItem *point_item = new QTableWidgetItem(point_string);
+        table->setItem(index, 0, point_item);
+
+        std::cout << "#" << i << " " << bc::encode_base16(point) << std::endl;
+    }
+}
+
 bool remove_point(size_t index)
 {
     //dark::blockchain chain;
@@ -281,7 +282,44 @@ bool remove_point(size_t index)
     return true;
 }
 
-int foo(int argc, char** argv)
+class gui_logger_buffer
+  : public std::streambuf
+{
+public:
+    gui_logger_buffer(std::streambuf& real_buffer)
+      : real_buffer_(real_buffer)
+    {
+    }
+
+    void set_output_log(QTextEdit* output_log)
+    {
+        output_log_ = output_log;
+    }
+protected:
+    virtual int overflow(int c)
+    {
+        if (output_log_)
+            line_.append(c);
+        real_buffer_.sputc(c);
+        return c;
+    }
+
+    int sync()
+    {
+        if (output_log_)
+        {
+            output_log_->setText(output_log_->toPlainText() + line_);
+            line_.clear();
+        }
+        return 0;
+    }
+private:
+    std::streambuf& real_buffer_;
+    QString line_;
+    QTextEdit* output_log_ = nullptr;
+};
+
+int main(int argc, char** argv)
 {
     cxxopts::Options options("darktech", "dark polytechnology");
     options.add_options()
@@ -304,6 +342,14 @@ int foo(int argc, char** argv)
     if (result.count("wallet"))
         wallet_path = result["wallet"].as<std::string>();
 
+    gui_logger_buffer buffer(*std::cout.rdbuf());
+    std::ostream stream(&buffer);
+
+    auto show_cerr = [](const char* message)
+    {
+        std::cerr << "Error: " << message << std::endl;
+    };
+
     if (result.count("help"))
     {
         show_help();
@@ -316,6 +362,7 @@ int foo(int argc, char** argv)
     else if (result.count("read"))
     {
         read_all();
+        return 0;
     }
     else if (result.count("delete"))
     {
@@ -331,35 +378,70 @@ int foo(int argc, char** argv)
         uint32_t value1 = result["c1"].as<uint32_t>();
         uint32_t value2 = result["c2"].as<uint32_t>();
         calc(value1, value2);
+        return 0;
     }
     else if (result.count("balance"))
     {
         dark::wallet wallet(wallet_path);
         show_balance(wallet);
+        return 0;
     }
     else if (result.count("send"))
     {
         dark::wallet wallet(wallet_path);
         uint64_t amount = result["send"].as<uint64_t>();
-        return send_money(wallet, amount) ? 0 : -1;
+        return send_money(wallet, amount, stream, show_cerr) ? 0 : -1;
     }
     else if (result.count("receive"))
     {
         dark::wallet wallet(wallet_path);
         receive_money(wallet);
+        return 0;
     }
     else if (result.count("add"))
     {
         dark::wallet wallet(wallet_path);
         uint64_t value = result["add"].as<uint64_t>();
         add_output(wallet, value);
+        return 0;
     }
     else if (result.count("server"))
     {
         dark::blockchain_server server;
         server.run();
+        return 0;
     }
 
-    return 0;
+    QApplication app(argc, argv);
+    QMainWindow *window = new QMainWindow;
+    Ui::darkwindow ui;
+    ui.setupUi(window);
+
+    dark::wallet wallet(wallet_path);
+
+    buffer.set_output_log(ui.output_log);
+
+    auto popup_error = [window](const char* message)
+    {
+        QMessageBox::critical(window, "Dark Wallet", message);
+    };
+
+    QObject::connect(ui.send_button, &QPushButton::clicked, [&]()
+    {
+        auto amount_string = ui.amount_lineedit->text().toStdString();
+        uint64_t amount;
+        if (amount_string.empty() ||
+            !bc::decode_base10(amount, amount_string, 8))
+        {
+            popup_error("Unable to decode amount. Try again.");
+            return;
+        }
+        send_money(wallet, amount, stream, popup_error);
+    });
+
+    set_commit_table(ui.commitment_table);
+
+    window->show();
+    return app.exec();
 }
 

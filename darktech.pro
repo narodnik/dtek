@@ -29,8 +29,7 @@ CONFIG += c++14
 
 # Input
 FORMS += darkwallet.ui
-SOURCES += test.cpp \
-    main.cpp \
+SOURCES += main.cpp \
     src/wallet.cpp \
     src/blockchain_client.cpp \
     src/blockchain_server.cpp \
