@@ -30,6 +30,13 @@ void show_balance(dark::wallet& wallet)
     std::cout << wallet.balance() << std::endl;
 }
 
+void update_balance(dark::wallet& wallet, QLabel* balance_label)
+{
+    auto balance_string = QString::fromStdString(
+        bc::encode_base10(wallet.balance(), 8));
+    balance_label->setText(balance_string);
+}
+
 struct assign_output_result
 {
     dark::output_index_type index;
@@ -440,6 +447,7 @@ int main(int argc, char** argv)
     });
 
     set_commit_table(ui.commitment_table);
+    update_balance(wallet, ui.balance_label);
 
     window->show();
     return app.exec();
