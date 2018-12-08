@@ -7,8 +7,15 @@
 #include <dark/blockchain_client.hpp>
 #include <dark/blockchain_server.hpp>
 #include <dark/transaction.hpp>
+#include <dark/utility.hpp>
 #include <dark/wallet.hpp>
 #include "ui_darkwallet.h"
+
+bool is_bit_set(uint64_t value, size_t i)
+{
+    const uint64_t value_2i = std::pow(2, i);
+    return (value & value_2i) > 0;
+}
 
 void calc(uint32_t value_1, uint32_t value_2)
 {
@@ -45,8 +52,10 @@ struct assign_output_result
     dark::transaction_rangeproof rangeproof;
 };
 
-assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
+assign_output_result assign_output(uint64_t value, std::ostream& stream)
 {
+    stream << "assign_output(" << value << ")" << std::endl;
+
     constexpr size_t proofsize = 64;
     typedef std::array<bc::ec_scalar, proofsize> subkeys_list;
 
@@ -57,32 +66,107 @@ assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
     // The 64 subkeys will be used for constructing the rangeproof
     for (auto& subkey: subkeys)
     {
-        auto& subkey_secret = subkey.secret();
-        bc::pseudo_random::fill(subkey_secret);
-
+        subkey = dark::new_key();
         secret += subkey;
     }
+    BITCOIN_ASSERT(secret);
+    stream << "secret: " << bc::encode_base16(secret.secret()) << std::endl;
+
     auto point =
         secret * bc::ec_point::G + bc::ec_scalar(value) * dark::ec_point_H;
 
-    std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
+    stream << "point: " << bc::encode_base16(point.point()) << std::endl;
 
     // [d_1 G + v_(0|1) H] + [d_2 G + v_(0|2) H] + [d_3 G + v_(0|4) H] + ...
     dark::transaction_rangeproof rangeproof;
     rangeproof.commitments.reserve(proofsize);
+    // Used for making the signature
+    bc::key_rings rangeproof_rings;
+    bc::secret_list rangeproof_secrets, rangeproof_salts;
+    uint64_t value_checker = 0;
     for (size_t i = 0; i < proofsize; ++i)
     {
         BITCOIN_ASSERT(i < subkeys.size());
         const auto& subkey = subkeys[i];
 
-        const auto public_key = subkey * bc::ec_point::G;
         // v = 0
-        rangeproof.commitments.push_back(public_key);
+        const auto public_key = subkey * bc::ec_point::G;
         // v = 2^i
-        uint64_t value_2i = std::pow(2, i + 1);
+        uint64_t value_2i = std::pow(2, i);
+        const auto value_point = bc::ec_scalar(value_2i) * dark::ec_point_H;
+
+        if (is_bit_set(value, i))
+        {
+            value_checker += value_2i;
+            // d G + v H
+            rangeproof.commitments.push_back(public_key + value_point);
+
+            // Second key is the valid one we sign with
+            // commitment - v H
+            rangeproof_rings.push_back({
+                public_key + value_point, public_key });
+        }
+        else
+        {
+            // d G
+            rangeproof.commitments.push_back(public_key);
+
+            // First key is the valid one we sign with
+            // commitment
+            rangeproof_rings.push_back({
+                public_key, public_key - value_point });
+        }
 
         // 2 keys
+        rangeproof.signature.proofs.push_back({
+            dark::new_key(), dark::new_key() });
+
+        rangeproof_secrets.push_back(subkey);
+        rangeproof_salts.push_back(dark::new_key());
     }
+    stream << "Assigned: " << value_checker << std::endl;
+
+    // Safety check
+    bc::ec_compressed result;
+    bc::ec_sum(result, rangeproof.commitments);
+    BITCOIN_ASSERT(point.point() == result);
+
+    // Check each public key has a correct secret key
+    const auto rings_size = rangeproof_rings.size();
+    BITCOIN_ASSERT(rangeproof_secrets.size() == rings_size);
+    BITCOIN_ASSERT(rangeproof_salts.size() == rings_size);
+    BITCOIN_ASSERT(rangeproof.signature.proofs.size() == rings_size);
+    for (size_t i = 0; i < rings_size; ++i)
+    {
+        const auto& secret = rangeproof_secrets[i];
+        const auto& ring = rangeproof_rings[i];
+        BITCOIN_ASSERT(ring.size() == rangeproof.signature.proofs[i].size());
+        BITCOIN_ASSERT(ring.size() == 2);
+
+        const auto key = secret * bc::ec_point::G;
+        BITCOIN_ASSERT(key.point() == ring[0] || key.point() == ring[1]);
+    }
+
+    bool rc = bc::sign(rangeproof.signature, rangeproof_secrets,
+        rangeproof_rings, bc::null_hash, rangeproof_salts);
+    BITCOIN_ASSERT(rc);
+
+    BITCOIN_ASSERT(rangeproof.commitments.size() == proofsize);
+    bc::key_rings test_rings;
+    for (size_t i = 0; i < proofsize; ++i)
+    {
+        const auto& commitment = rangeproof.commitments[i];
+        const uint64_t value_2i = std::pow(2, i);
+        test_rings.push_back({
+            commitment,
+            commitment - bc::ec_scalar(value_2i) * dark::ec_point_H });
+    }
+
+    // Verify rangeproof
+    rc = bc::verify(test_rings, bc::null_hash, rangeproof.signature);
+    BITCOIN_ASSERT(rc);
+
+    stream << "Rangeproof checks out." << std::endl;
 
     return { secret, point, rangeproof };
 }
@@ -153,7 +237,7 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
         stream << "Change: " << change_amount << std::endl;
         // Create change output
         // Create 64 private keys, which are used for the rangeproof
-        auto change_output = assign_output(wallet, change_amount);
+        auto change_output = assign_output(change_amount, stream);
         // Modify transaction
         tx.outputs.push_back(dark::transaction_output{
             change_output.point,

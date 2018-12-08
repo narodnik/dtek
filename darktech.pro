@@ -33,5 +33,6 @@ SOURCES += main.cpp \
     src/wallet.cpp \
     src/blockchain_client.cpp \
     src/blockchain_server.cpp \
-    src/blockchain.cpp
+    src/blockchain.cpp \
+    src/utility.cpp
 
