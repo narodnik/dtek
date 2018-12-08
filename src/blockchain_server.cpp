@@ -76,11 +76,12 @@ void blockchain_server::reply(const blockchain_server_request& request)
             auto deserial = bc::make_unsafe_deserializer(request.data.begin());
             auto index = deserial.read_4_bytes_little_endian();
             // Blockchain call
-            auto point = chain_.get(index);
+            auto result = chain_.get(index);
+            bc::data_slice slice(result, result + blockchain_record_size);
             std::cout << "get(" << index << ") -> "
-                << bc::encode_base16(point) << std::endl;
+                << bc::encode_base16(slice) << std::endl;
             // Send response
-            respond(point);
+            respond(slice);
             break;
         }
         case blockchain_server_command::remove:

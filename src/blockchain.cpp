@@ -32,7 +32,7 @@ blockchain::blockchain(const char* prefix)
     records_storage_ = std::make_unique<bc::database::file_storage>(
         filepath(prefix, "outputs"));
     records_ = std::make_unique<records_type>(
-        *records_storage_, 0, record_size);
+        *records_storage_, 0, blockchain_record_size);
 
     records_storage_->open();
     if(create_new)
@@ -62,16 +62,18 @@ output_index_type blockchain::put(const bc::ec_compressed& point)
     auto memory = records_->get(new_record_index);
     auto* buffer = memory->buffer();
     std::copy(point.begin(), point.end(), buffer);
+    // Write time
+    auto serial = bc::make_unsafe_serializer(buffer + bc::ec_compressed_size);
+    const auto time = std::time(nullptr);
+    serial.write_4_bytes_little_endian(time);
     return new_record_index;
 }
 
-bc::ec_compressed blockchain::get(const output_index_type index) const
+const uint8_t* blockchain::get(const output_index_type index) const
 {
     auto memory = records_->get(index);
     const auto* buffer = memory->buffer();
-    bc::ec_compressed result;
-    std::copy(buffer, buffer + bc::ec_compressed_size, result.begin());
-    return result;
+    return buffer;
 }
 
 void blockchain::remove(const output_index_type index)

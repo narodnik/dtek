@@ -5,6 +5,12 @@
 
 namespace dark {
 
+struct get_result
+{
+    bc::ec_compressed point;
+    std::time_t time;
+};
+
 class blockchain_client
 {
 public:
@@ -12,7 +18,7 @@ public:
     ~blockchain_client();
 
     output_index_type put(const bc::ec_compressed& point);
-    bc::ec_compressed get(const output_index_type index);
+    get_result get(const output_index_type index);
 
     void remove(const output_index_type index);
     bool exists(const output_index_type index);

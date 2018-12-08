@@ -20,14 +20,17 @@ output_index_type blockchain_client::put(const bc::ec_compressed& point)
     auto deserial = bc::make_unsafe_deserializer(response_data.begin());
     return deserial.read_4_bytes_little_endian();
 }
-bc::ec_compressed blockchain_client::get(const output_index_type index)
+get_result blockchain_client::get(const output_index_type index)
 {
     send_request(blockchain_server_command::get, index);
 
     auto response_data = receive_response();
     bc::ec_compressed result;
     std::copy(response_data.begin(), response_data.end(), result.begin());
-    return result;
+
+    auto deserial = bc::make_unsafe_deserializer(
+        response_data.begin() + bc::ec_compressed_size);
+    return { result, deserial.read_4_bytes_little_endian() };
 }
 
 void blockchain_client::remove(const output_index_type index)

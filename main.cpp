@@ -2,11 +2,12 @@
 
 #include <boost/range/irange.hpp>
 #include <cxxopts.hpp>
+#include <QDateTime>
+#include <QMessageBox>
 #include <dark/blockchain_client.hpp>
 #include <dark/blockchain_server.hpp>
 #include <dark/transaction.hpp>
 #include <dark/wallet.hpp>
-#include <QMessageBox>
 #include "ui_darkwallet.h"
 
 void calc(uint32_t value_1, uint32_t value_2)
@@ -39,8 +40,7 @@ void update_balance(dark::wallet& wallet, QLabel* balance_label)
 
 struct assign_output_result
 {
-    dark::output_index_type index;
-    bc::ec_secret secret;
+    bc::ec_scalar secret;
     bc::ec_point point;
     dark::transaction_rangeproof rangeproof;
 };
@@ -51,7 +51,7 @@ assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
     typedef std::array<bc::ec_scalar, proofsize> subkeys_list;
 
     subkeys_list subkeys;
-    auto combined_key = bc::ec_scalar::zero;
+    auto secret = bc::ec_scalar::zero;
 
     // Create private key by summing 64 sub private keys
     // The 64 subkeys will be used for constructing the rangeproof
@@ -60,35 +60,17 @@ assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
         auto& subkey_secret = subkey.secret();
         bc::pseudo_random::fill(subkey_secret);
 
-        combined_key += subkey;
+        secret += subkey;
     }
-    const auto& secret = combined_key.secret();
-
-    auto value_secret = bc::ec_scalar::zero.secret();
-    auto serial = bc::make_unsafe_serializer(value_secret.end() - 4);
-    serial.write_4_bytes_big_endian(value);
-
-    std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
-    std::cout << "scalar: " << bc::encode_base16(value_secret)
-        << std::endl;
-
-    auto point = secret * bc::ec_point::G + value_secret * dark::ec_point_H;
+    auto point =
+        secret * bc::ec_point::G + bc::ec_scalar(value) * dark::ec_point_H;
 
     std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
-
-    // Allocate index
-    // Add to blockchain
-    //dark::blockchain chain;
-    dark::blockchain_client chain;
-    auto index = chain.put(point);
-
-    // Add to wallet
-    wallet.insert(index, point, secret, value);
 
     // [d_1 G + v_(0|1) H] + [d_2 G + v_(0|2) H] + [d_3 G + v_(0|4) H] + ...
     dark::transaction_rangeproof rangeproof;
     rangeproof.commitments.reserve(proofsize);
-    for (size_t i = 1; i <= proofsize; ++i)
+    for (size_t i = 0; i < proofsize; ++i)
     {
         BITCOIN_ASSERT(i < subkeys.size());
         const auto& subkey = subkeys[i];
@@ -97,12 +79,12 @@ assign_output_result assign_output(dark::wallet& wallet, uint64_t value)
         // v = 0
         rangeproof.commitments.push_back(public_key);
         // v = 2^i
-        uint64_t value_2i = std::pow(2, i);
+        uint64_t value_2i = std::pow(2, i + 1);
 
         // 2 keys
     }
 
-    return { index, value_secret, point, rangeproof };
+    return { secret, point, rangeproof };
 }
 
 void add_output(dark::wallet& wallet, uint64_t value)
@@ -111,15 +93,13 @@ void add_output(dark::wallet& wallet, uint64_t value)
     bc::ec_secret secret;
     bc::pseudo_random::fill(secret);
 
-    auto value_secret = bc::ec_scalar::zero.secret();
-    auto serial = bc::make_unsafe_serializer(value_secret.end() - 4);
-    serial.write_4_bytes_big_endian(value);
+    auto value_scalar = bc::ec_scalar(value);
 
     std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
-    std::cout << "scalar: " << bc::encode_base16(value_secret)
+    std::cout << "scalar: " << bc::encode_base16(value_scalar.secret())
         << std::endl;
 
-    auto point = secret * bc::ec_point::G + value_secret * dark::ec_point_H;
+    auto point = secret * bc::ec_point::G + value_scalar * dark::ec_point_H;
 
     std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
 
@@ -189,6 +169,9 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
 
     // wait for server to broadcast ID of change output back
 
+    // Add to wallet
+    //wallet.insert(index, point, secret, value);
+
     return true;
 }
 
@@ -242,8 +225,10 @@ void read_all()
     {
         if (!chain.exists(i))
             continue;
-        auto point = chain.get(i);
-        std::cout << "#" << i << " " << bc::encode_base16(point) << std::endl;
+        auto result = chain.get(i);
+        std::cout << "#" << i << " "
+            << bc::encode_base16(result.point) << " "
+            << std::asctime(std::localtime(&result.time)) << std::endl;
     }
 }
 
@@ -261,13 +246,20 @@ void set_commit_table(QTableWidget* table)
         const size_t index = table->rowCount();
         table->setRowCount(index + 1);
 
-        auto point = chain.get(i);
+        auto result = chain.get(i);
         QString point_string = QString::fromStdString(
-            bc::encode_base16(point));
+            bc::encode_base16(result.point));
         QTableWidgetItem *point_item = new QTableWidgetItem(point_string);
         table->setItem(index, 0, point_item);
 
-        std::cout << "#" << i << " " << bc::encode_base16(point) << std::endl;
+        QDateTime time = QDateTime::fromSecsSinceEpoch(result.time);
+        QTableWidgetItem *time_item = new QTableWidgetItem(
+            time.toString("HH:mm ddd d MMM yy"));
+        table->setItem(index, 1, time_item);
+
+        std::cout << "#" << i << " "
+            << bc::encode_base16(result.point) << " "
+            << std::asctime(std::localtime(&result.time)) << std::endl;
     }
 }
 
