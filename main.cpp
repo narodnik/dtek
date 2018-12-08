@@ -1,5 +1,6 @@
 #include <bitcoin/bitcoin.hpp>
 
+#include <boost/optional.hpp>
 #include <boost/range/irange.hpp>
 #include <cxxopts.hpp>
 #include <QDateTime>
@@ -227,6 +228,9 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
     for (const auto& row: selected)
         tx.inputs.push_back(row.index);
 
+    typedef boost::optional<assign_output_result> optional_output;
+    optional_output change_output;
+
     BITCOIN_ASSERT(amount <= balance);
     // If we have remaining coins after sending then compute change output
     if (amount < balance)
@@ -237,16 +241,30 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
         stream << "Change: " << change_amount << std::endl;
         // Create change output
         // Create 64 private keys, which are used for the rangeproof
-        auto change_output = assign_output(change_amount, stream);
+        change_output = assign_output(change_amount, stream);
         // Modify transaction
         tx.outputs.push_back(dark::transaction_output{
-            change_output.point,
-            change_output.rangeproof
+            change_output->point,
+            change_output->rangeproof
         });
     }
 
     // compute excess
+    auto excess_secret = bc::ec_scalar::zero;
+    for (const auto& row: selected)
+        excess_secret -= row.key;
+
+    if (change_output)
+        excess_secret += change_output->secret;
+
+    tx.kernel.excess = excess_secret * bc::ec_point::G;
+    stream << "Excess: "
+        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+
     // compute signature
+    tx.kernel.signature = dark::sign(excess_secret);
+    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess));
+    stream << "Signature computed and verified" << std::endl;
 
     // connect to messenging service
     // send tx, amount with command

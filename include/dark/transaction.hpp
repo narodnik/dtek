@@ -2,18 +2,18 @@
 #define DARK_TRANSACTION_HPP
 
 #include <bitcoin/bitcoin.hpp>
+#include <dark/blockchain.hpp>
 
 namespace dark {
 
 struct schnorr_signature
 {
-    bc::ec_point commitment;
-    bc::ec_scalar proof;
+    bc::ec_point witness;
+    bc::ec_scalar response;
 };
 
-// sign
-// combine
-// verify
+schnorr_signature sign(const bc::ec_scalar& secret);
+bool verify(const schnorr_signature& signature, const bc::ec_point& key);
 
 typedef output_index_type input_index_type;
 typedef std::vector<input_index_type> input_index_list;
