@@ -90,13 +90,6 @@
            </item>
           </layout>
          </item>
-         <item row="1" column="2">
-          <widget class="QCheckBox" name="checkBox">
-           <property name="text">
-            <string>Mixnet</string>
-           </property>
-          </widget>
-         </item>
          <item row="0" column="1">
           <spacer name="horizontalSpacer_2">
            <property name="orientation">
@@ -109,6 +102,23 @@
             </size>
            </property>
           </spacer>
+         </item>
+         <item row="0" column="2">
+          <widget class="QCheckBox" name="checkBox">
+           <property name="text">
+            <string>Mixnet</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="2">
+          <widget class="QLineEdit" name="destination_lineedit">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="placeholderText">
+            <string>Destination</string>
+           </property>
+          </widget>
          </item>
         </layout>
        </item>

@@ -24,5 +24,14 @@ bc::data_chunk new_seed(size_t bit_length)
     return seed;
 }
 
+uint32_t random_uint()
+{
+    std::random_device device;
+    std::mt19937 generator(device());
+    std::uniform_int_distribution<uint32_t> uniform(
+        0, std::numeric_limits<uint32_t>::max());
+    return uniform(generator);
+}
+
 } // namespace dark
 

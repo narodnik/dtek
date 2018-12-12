@@ -5,12 +5,17 @@
 #include <cxxopts.hpp>
 #include <QDateTime>
 #include <QMessageBox>
+#include <QThread>
+#include <nlohmann/json.hpp>
 #include <dark/blockchain_client.hpp>
 #include <dark/blockchain_server.hpp>
+#include <dark/message_client.hpp>
 #include <dark/transaction.hpp>
 #include <dark/utility.hpp>
 #include <dark/wallet.hpp>
 #include "ui_darkwallet.h"
+
+using json = nlohmann::json;
 
 bool is_bit_set(uint64_t value, size_t i)
 {
@@ -199,8 +204,15 @@ void add_output(dark::wallet& wallet, uint64_t value)
 }
 
 template <typename ShowErrorFunction>
-bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
-    ShowErrorFunction show_error)
+void continue_send_money(const std::string& username, dark::wallet& wallet,
+    const std::string& destination, uint64_t amount,
+    std::ostream& stream, ShowErrorFunction show_error);
+
+template <typename ShowErrorFunction>
+bool send_money(const std::string& username,
+    dark::wallet& wallet, dark::message_client& client,
+    const std::string& destination, uint64_t amount,
+    std::ostream& stream, ShowErrorFunction show_error)
 {
     uint64_t balance = wallet.balance();
 
@@ -216,7 +228,8 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
         return false;
     }
 
-    stream << "Sending: " << amount << std::endl;
+    stream << username << " sending: " << amount
+        << " to " << destination << std::endl;
 
     auto selected = wallet.select_outputs(amount);
     stream << "Selected:";
@@ -266,15 +279,76 @@ bool send_money(dark::wallet& wallet, uint64_t amount, std::ostream& stream,
     BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess));
     stream << "Signature computed and verified" << std::endl;
 
-    // connect to messenging service
+    // Create json to send
     // send tx, amount with command
+    const auto tx_id = dark::random_uint();
+    json send_json = {
+        {"command", "send"},
+        {"tx", {
+            {"id", tx_id},
+            {"destination", destination},
+            {"inputs", json::array()},
+            {"outputs", json::array()},
+            {"kernel", {
+                {"fee", tx.kernel.fee},
+                {"excess", bc::encode_base16(tx.kernel.excess.point())},
+                {"signature", {
+                    {"witness", bc::encode_base16(
+                        tx.kernel.signature.witness.point())},
+                    {"response", bc::encode_base16(
+                        tx.kernel.signature.response.secret())}
+                }}
+        }}}},
+        {"amount", amount}
+    };
+    for (const auto input: tx.inputs)
+    {
+        send_json["tx"]["inputs"].push_back(input);
+    }
+    for (const auto& output: tx.outputs)
+    {
+        send_json["tx"]["outputs"].push_back({
+            {"output", bc::encode_base16(output.output.point())}
+        });
+    }
+    stream << send_json.dump(4) << std::endl;
+
+    // connect to messenging service
+    auto continue_send = 
+        [=, &wallet, &stream](const QString& response)
+    {
+        continue_send_money(username, wallet, destination, amount,
+            response.toStdString(), stream, show_error);
+    };
+
+    dark::client_worker_thread *worker = new dark::client_worker_thread(
+        tx_id, "send");
+    QObject::connect(worker, &dark::client_worker_thread::ready,
+        QCoreApplication::instance(), continue_send);
+    QObject::connect(worker, &dark::client_worker_thread::finished,
+        worker, &QObject::deleteLater);
+    worker->start();
+
+    // Now do the actual send
+    client.send(send_json.dump());
 
     // wait for server to broadcast ID of change output back
+    stream << "Waiting for response back" << std::endl;
+
+    return true;
+}
+
+template <typename ShowErrorFunction>
+void continue_send_money(const std::string& username, dark::wallet& wallet,
+    const std::string& destination, uint64_t amount,
+    const std::string& response_string,
+    std::ostream& stream, ShowErrorFunction show_error)
+{
+    auto response = json::parse(response_string);
+    stream << "Received response: " << response.dump(4) << std::endl;
 
     // Add to wallet
     //wallet.insert(index, point, secret, value);
-
-    return true;
 }
 
 void receive_money(dark::wallet& wallet)
@@ -427,12 +501,13 @@ int main(int argc, char** argv)
         ("h,help", "Show program help")
         ("write", "Write point",  cxxopts::value<std::string>())
         ("w,wallet", "Path to wallet",  cxxopts::value<std::string>())
+        ("u,username", "Username",  cxxopts::value<std::string>())
+        ("dest", "Send destination",  cxxopts::value<std::string>())
         ("r,read", "Read all points")
         ("d,delete", "Delete row", cxxopts::value<size_t>())
         ("c1", "Calculate point #1", cxxopts::value<uint32_t>())
         ("c2", "Calculate point #2", cxxopts::value<uint32_t>())
         ("b,balance", "Show balance")
-        ("s,send", "Send money", cxxopts::value<uint64_t>())
         ("receive", "Receive funds")
         ("a,add", "Add fake output", cxxopts::value<uint64_t>())
         ("server", "Run blockchain server")
@@ -442,6 +517,10 @@ int main(int argc, char** argv)
     std::string wallet_path = "wallet.db";
     if (result.count("wallet"))
         wallet_path = result["wallet"].as<std::string>();
+
+    std::string username = "harry";
+    if (result.count("username"))
+        username = result["username"].as<std::string>();
 
     gui_logger_buffer buffer(*std::cout.rdbuf());
     std::ostream stream(&buffer);
@@ -487,12 +566,6 @@ int main(int argc, char** argv)
         show_balance(wallet);
         return 0;
     }
-    else if (result.count("send"))
-    {
-        dark::wallet wallet(wallet_path);
-        uint64_t amount = result["send"].as<uint64_t>();
-        return send_money(wallet, amount, stream, show_cerr) ? 0 : -1;
-    }
     else if (result.count("receive"))
     {
         dark::wallet wallet(wallet_path);
@@ -519,6 +592,7 @@ int main(int argc, char** argv)
     ui.setupUi(window);
 
     dark::wallet wallet(wallet_path);
+    dark::message_client client;
 
     buffer.set_output_log(ui.output_log);
 
@@ -537,8 +611,30 @@ int main(int argc, char** argv)
             popup_error("Unable to decode amount. Try again.");
             return;
         }
-        send_money(wallet, amount, stream, popup_error);
+        auto destination = ui.destination_lineedit->text().toStdString();
+        if (destination.empty())
+        {
+            popup_error("Missing destination");
+            return;
+        }
+        send_money(username, wallet, client,
+            destination, amount, stream, popup_error);
     });
+
+    auto receive_tx = 
+        [&stream](const QString& response)
+    {
+        stream << "Received transaction: "
+            << response.toStdString() << std::endl;
+    };
+
+    dark::listen_worker_thread *worker = new dark::listen_worker_thread(
+        username);
+    QObject::connect(worker, &dark::listen_worker_thread::ready,
+        QCoreApplication::instance(), receive_tx);
+    QObject::connect(worker, &dark::listen_worker_thread::finished,
+        worker, &QObject::deleteLater);
+    worker->start();
 
     set_commit_table(ui.commitment_table);
     update_balance(wallet, ui.balance_label);

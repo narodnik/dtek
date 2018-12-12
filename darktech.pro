@@ -29,11 +29,13 @@ CONFIG += c++14
 
 # Input
 FORMS += darkwallet.ui
+HEADERS += include/dark/message_client.hpp
 SOURCES += main.cpp \
     src/wallet.cpp \
     src/blockchain_client.cpp \
     src/blockchain_server.cpp \
     src/blockchain.cpp \
     src/transaction.cpp \
+    src/message_client.cpp \
     src/utility.cpp
 
