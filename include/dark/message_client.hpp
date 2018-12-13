@@ -42,12 +42,14 @@ class listen_worker_thread
   : public QThread
 {
 public:
-    listen_worker_thread(const std::string& username);
+    listen_worker_thread(
+        const std::string& username, const std::string& command);
 private:
     Q_OBJECT
     void run() override;
 
     const std::string username_;
+    const std::string command_;
     message_client client_;
 signals:
     void ready(const QString &response);

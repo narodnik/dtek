@@ -1,5 +1,6 @@
 #include <dark/message_client.hpp>
 
+#include <iostream>
 #include <nlohmann/json.hpp>
 
 namespace dark {
@@ -66,8 +67,9 @@ void client_worker_thread::run()
     }
 }
 
-listen_worker_thread::listen_worker_thread(const std::string& username)
-  : username_(username)
+listen_worker_thread::listen_worker_thread(
+    const std::string& username, const std::string& command)
+  : username_(username), command_(command)
 {
 }
 
@@ -79,7 +81,7 @@ void listen_worker_thread::run()
         auto response = json::parse(result);
         if (response.count("command") &&
             response["command"].is_string() &&
-            response["command"].get<std::string>() == "send" &&
+            response["command"].get<std::string>() == command_ &&
             response.count("tx") && response["tx"].count("destination") &&
             response["tx"]["destination"].is_string() &&
             response["tx"]["destination"].get<std::string>() == username_)

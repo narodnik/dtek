@@ -15,7 +15,8 @@ class Server:
         while True:
             data = self._receiver_socket.recv()
             print(data)
-            self._publish_socket.send(data)
+            print()
+            #self._publish_socket.send(data)
 
 if __name__ == '__main__':
     server = Server()

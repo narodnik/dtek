@@ -37,5 +37,6 @@ SOURCES += main.cpp \
     src/blockchain.cpp \
     src/transaction.cpp \
     src/message_client.cpp \
+    src/message_server.cpp \
     src/utility.cpp
 

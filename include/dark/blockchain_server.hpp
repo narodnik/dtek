@@ -28,7 +28,7 @@ public:
     blockchain_server();
     ~blockchain_server();
 
-    void run();
+    void start();
 private:
     blockchain_server_request receive();
     void reply(const blockchain_server_request& request);

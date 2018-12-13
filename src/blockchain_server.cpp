@@ -12,7 +12,7 @@ blockchain_server::~blockchain_server()
     zsock_destroy(&socket_);
 }
 
-void blockchain_server::run()
+void blockchain_server::start()
 {
     zsys_handler_set(NULL);
     while (true)

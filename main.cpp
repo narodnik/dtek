@@ -1,5 +1,6 @@
 #include <bitcoin/bitcoin.hpp>
 
+#include <thread>
 #include <boost/optional.hpp>
 #include <boost/range/irange.hpp>
 #include <cxxopts.hpp>
@@ -10,12 +11,17 @@
 #include <dark/blockchain_client.hpp>
 #include <dark/blockchain_server.hpp>
 #include <dark/message_client.hpp>
+#include <dark/message_server.hpp>
 #include <dark/transaction.hpp>
 #include <dark/utility.hpp>
 #include <dark/wallet.hpp>
 #include "ui_darkwallet.h"
 
 using json = nlohmann::json;
+
+typedef std::unordered_map<uint32_t, bc::ec_scalar> keys_map_type;
+
+keys_map_type keys_map;
 
 bool is_bit_set(uint64_t value, size_t i)
 {
@@ -204,6 +210,13 @@ void add_output(dark::wallet& wallet, uint64_t value)
 }
 
 template <typename ShowErrorFunction>
+void send_money_2(const std::string& username,
+    dark::wallet& wallet, dark::message_client& client,
+    const std::string& destination, uint64_t amount,
+    const std::string& response, const uint32_t tx_id,
+    std::ostream& stream, ShowErrorFunction show_error);
+
+template <typename ShowErrorFunction>
 void continue_send_money(const std::string& username, dark::wallet& wallet,
     const std::string& destination, uint64_t amount,
     std::ostream& stream, ShowErrorFunction show_error);
@@ -231,6 +244,53 @@ bool send_money(const std::string& username,
     stream << username << " sending: " << amount
         << " to " << destination << std::endl;
 
+    const auto tx_id = dark::random_uint();
+
+    auto requested_keys = 
+        [=, &wallet, &client, &stream](const QString& response)
+    {
+        send_money_2(username, wallet, client, destination, amount,
+            response.toStdString(), tx_id, stream, show_error);
+    };
+
+    dark::client_worker_thread *preworker = new dark::client_worker_thread(
+        tx_id, "request_send_reply");
+    QObject::connect(preworker, &dark::client_worker_thread::ready,
+        QCoreApplication::instance(), requested_keys);
+    QObject::connect(preworker, &dark::client_worker_thread::finished,
+        preworker, &QObject::deleteLater);
+    preworker->start();
+
+    json send_json = {
+        {"command", "request_send"},
+        {"tx", {
+            {"id", tx_id},
+            {"destination", destination}
+        }}
+    };
+    client.send(send_json.dump());
+
+    return true;
+}
+
+template <typename ShowErrorFunction>
+void send_money_2(const std::string& username,
+    dark::wallet& wallet, dark::message_client& client,
+    const std::string& destination, uint64_t amount,
+    const std::string& response_other, const uint32_t tx_id,
+    std::ostream& stream, ShowErrorFunction show_error)
+{
+    auto response_keys = json::parse(response_other);
+    bc::ec_compressed other_witness_point;
+    bool rc = bc::decode_base16(
+        other_witness_point, response_keys["witness_i"].get<std::string>());
+    BITCOIN_ASSERT(rc);
+    stream << "Received witness_i of: "
+        << bc::encode_base16(other_witness_point) << std::endl;
+    const bc::ec_point witness_2 = other_witness_point;
+
+    const uint64_t balance = wallet.balance();
+
     auto selected = wallet.select_outputs(amount);
     stream << "Selected:";
     for (const auto& row: selected)
@@ -238,6 +298,7 @@ bool send_money(const std::string& username,
     stream << std::endl;
 
     dark::transaction tx;
+    tx.kernel.fee = 0;
     for (const auto& row: selected)
         tx.inputs.push_back(row.index);
 
@@ -275,13 +336,30 @@ bool send_money(const std::string& username,
         << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
 
     // compute signature
-    tx.kernel.signature = dark::sign(excess_secret);
-    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess));
+    const auto k = dark::new_key();
+    const auto witness_1 = k * bc::ec_point::G;
+    const auto combined_witness = witness_1 + witness_2;
+    tx.kernel.signature = dark::sign(excess_secret, k, combined_witness);
+
+    // verify signature for correctness
+    stream << "  (R, s) = ("
+        << bc::encode_base16(tx.kernel.signature.witness.point()) << ", "
+        << bc::encode_base16(tx.kernel.signature.response.secret())
+        << ")" << std::endl;
+    stream << "  P = "
+        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+    stream << "  R_1 = "
+        << bc::encode_base16(witness_1.point()) << std::endl;
+    stream << "  R_2 = "
+        << bc::encode_base16(witness_2.point()) << std::endl;
+    stream << "  R = "
+        << bc::encode_base16(combined_witness.point()) << std::endl;
+    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess,
+        combined_witness));
     stream << "Signature computed and verified" << std::endl;
 
     // Create json to send
     // send tx, amount with command
-    const auto tx_id = dark::random_uint();
     json send_json = {
         {"command", "send"},
         {"tx", {
@@ -299,7 +377,8 @@ bool send_money(const std::string& username,
                         tx.kernel.signature.response.secret())}
                 }}
         }}}},
-        {"amount", amount}
+        {"amount", amount},
+        {"witness_1", bc::encode_base16(witness_1.point())}
     };
     for (const auto input: tx.inputs)
     {
@@ -322,7 +401,7 @@ bool send_money(const std::string& username,
     };
 
     dark::client_worker_thread *worker = new dark::client_worker_thread(
-        tx_id, "send");
+        tx_id, "final");
     QObject::connect(worker, &dark::client_worker_thread::ready,
         QCoreApplication::instance(), continue_send);
     QObject::connect(worker, &dark::client_worker_thread::finished,
@@ -334,8 +413,6 @@ bool send_money(const std::string& username,
 
     // wait for server to broadcast ID of change output back
     stream << "Waiting for response back" << std::endl;
-
-    return true;
 }
 
 template <typename ShowErrorFunction>
@@ -351,16 +428,178 @@ void continue_send_money(const std::string& username, dark::wallet& wallet,
     //wallet.insert(index, point, secret, value);
 }
 
-void receive_money(dark::wallet& wallet)
+dark::transaction from_json(json& response)
 {
-    // connect to messenging service
-    // wait for tx, amount with command
-    // create new output
-    // compute excess
-    // compute signature
+    dark::transaction tx;
+    tx.kernel.fee = response["tx"]["kernel"]["fee"].get<uint64_t>();
+    bc::ec_compressed excess_point;
+    bool rc = bc::decode_base16(
+        excess_point, response["tx"]["kernel"]["excess"].get<std::string>());
+    BITCOIN_ASSERT(rc);
+    tx.kernel.excess = excess_point;
+    bc::ec_compressed witness_point;
+    rc = bc::decode_base16(
+        witness_point,
+        response["tx"]["kernel"]["signature"]["witness"].get<std::string>());
+    tx.kernel.signature.witness = witness_point;
+    BITCOIN_ASSERT(rc);
+    bc::ec_secret signature_response;
+    rc = bc::decode_base16(
+        signature_response,
+        response["tx"]["kernel"]["signature"]["response"].get<std::string>());
+    BITCOIN_ASSERT(rc);
+    tx.kernel.signature.response = signature_response;
 
+    for (auto& input: response["tx"]["inputs"])
+    {
+        tx.inputs.push_back(input.get<uint32_t>());
+    }
+
+    for (auto& output: response["tx"]["outputs"])
+    {
+        bc::ec_compressed output_point;
+        rc = bc::decode_base16(output_point, output["output"]);
+        BITCOIN_ASSERT(rc);
+        tx.outputs.push_back(dark::transaction_output{
+            output_point,
+            dark::transaction_rangeproof()
+        });
+    }
+    return tx;
+}
+
+void receive_money(dark::wallet& wallet, dark::message_client& client,
+    std::string response_string, std::ostream& stream)
+{
+    auto response = json::parse(response_string);
+    stream << "Received transaction: " << response.dump(4) << std::endl;
+
+    auto tx = from_json(response);
+    uint64_t amount = response["amount"].get<uint64_t>();
+    const uint32_t tx_id = response["tx"]["id"].get<uint32_t>();
+
+    bc::ec_compressed witness_1_point;
+    bool rc = bc::decode_base16(witness_1_point, response["witness_1"]);
+    BITCOIN_ASSERT(rc);
+    const bc::ec_point witness_1 = witness_1_point;
+    stream << "Witness 1: "
+        << bc::encode_base16(witness_1.point()) << std::endl;
+
+    const auto salt = keys_map[tx_id];
+    const auto witness_2 = salt * bc::ec_point::G;
+    stream << "Witness 2: "
+        << bc::encode_base16(witness_2.point()) << std::endl;
+    const auto combined_witness = witness_1 + witness_2;
+
+    // create new output
+    auto output = assign_output(amount, stream);
+
+    // compute excess
+    const auto excess_secret = output.secret;
+    const auto excess = excess_secret * bc::ec_point::G;
+    // compute signature
+    const auto signature = dark::sign(excess_secret, salt, combined_witness);
+    BITCOIN_ASSERT(dark::verify(signature, excess, combined_witness));
+
+    // verify signature for correctness
+    stream << "  (R, s) = ("
+        << bc::encode_base16(tx.kernel.signature.witness.point()) << ", "
+        << bc::encode_base16(tx.kernel.signature.response.secret())
+        << ")" << std::endl;
+    stream << "  P = "
+        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+    stream << "  R_1 = "
+        << bc::encode_base16(witness_1.point()) << std::endl;
+    stream << "  R_2 = "
+        << bc::encode_base16(witness_2.point()) << std::endl;
+    stream << "  R = "
+        << bc::encode_base16(combined_witness.point()) << std::endl;
+    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess,
+        combined_witness));
+    
     // combine excess and signature
+    tx.kernel.excess += excess;
+    tx.kernel.signature = dark::aggregate(tx.kernel.signature, signature);
+    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess,
+        combined_witness));
+    BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess));
+
+    // Modify transaction
+    tx.outputs.push_back(dark::transaction_output{
+        output.point,
+        output.rangeproof
+    });
+
     // broadcast completed tx to server
+    json send_json = {
+        {"command", "broadcast"},
+        {"tx", {
+            {"id", tx_id},
+            {"inputs", json::array()},
+            {"outputs", json::array()},
+            {"kernel", {
+                {"fee", tx.kernel.fee},
+                {"excess", bc::encode_base16(tx.kernel.excess.point())},
+                {"signature", {
+                    {"witness", bc::encode_base16(
+                        tx.kernel.signature.witness.point())},
+                    {"response", bc::encode_base16(
+                        tx.kernel.signature.response.secret())}
+                }}
+        }}}}
+    };
+    for (const auto input: tx.inputs)
+    {
+        send_json["tx"]["inputs"].push_back(input);
+    }
+    for (const auto& output: tx.outputs)
+    {
+        send_json["tx"]["outputs"].push_back({
+            {"output", bc::encode_base16(output.output.point())}
+        });
+    }
+
+    // verify outputs and inputs
+    bc::ec_point re_excess;
+    bool is_init = false;
+    for (const auto& output: tx.outputs)
+    {
+        if (!is_init)
+        {
+            is_init = true;
+            re_excess = output.output;
+        }
+        else
+            re_excess += output.output;
+    }
+    dark::blockchain_client chain;
+    for (const auto input: tx.inputs)
+    {
+        BITCOIN_ASSERT(input < chain.count());
+        BITCOIN_ASSERT(chain.exists(input));
+        auto result = chain.get(input);
+        re_excess -= result.point;
+    }
+    BITCOIN_ASSERT(tx.kernel.excess == re_excess);
+
+    // connect to messenging service
+    auto final_receive = 
+        [=, &wallet, &stream](const QString& response_string)
+    {
+        const auto response = json::parse(response_string.toStdString());
+        stream << "Final response!" << response.dump(4) << std::endl;
+    };
+
+    dark::client_worker_thread *worker = new dark::client_worker_thread(
+        tx_id, "final");
+    QObject::connect(worker, &dark::client_worker_thread::ready,
+        QCoreApplication::instance(), final_receive);
+    QObject::connect(worker, &dark::client_worker_thread::finished,
+        worker, &QObject::deleteLater);
+    worker->start();
+
+    // Now do the actual send
+    client.send(send_json.dump());
 
     // wait for server to broadcast ID of our output back
 }
@@ -508,7 +747,6 @@ int main(int argc, char** argv)
         ("c1", "Calculate point #1", cxxopts::value<uint32_t>())
         ("c2", "Calculate point #2", cxxopts::value<uint32_t>())
         ("b,balance", "Show balance")
-        ("receive", "Receive funds")
         ("a,add", "Add fake output", cxxopts::value<uint64_t>())
         ("server", "Run blockchain server")
     ;
@@ -566,12 +804,6 @@ int main(int argc, char** argv)
         show_balance(wallet);
         return 0;
     }
-    else if (result.count("receive"))
-    {
-        dark::wallet wallet(wallet_path);
-        receive_money(wallet);
-        return 0;
-    }
     else if (result.count("add"))
     {
         dark::wallet wallet(wallet_path);
@@ -581,8 +813,15 @@ int main(int argc, char** argv)
     }
     else if (result.count("server"))
     {
+        std::thread thread([]
+        {
+            dark::message_server server;
+            server.start();
+        });
+        thread.detach();
+
         dark::blockchain_server server;
-        server.run();
+        server.start();
         return 0;
     }
 
@@ -621,15 +860,41 @@ int main(int argc, char** argv)
             destination, amount, stream, popup_error);
     });
 
-    auto receive_tx = 
-        [&stream](const QString& response)
+    auto pre_receive_tx = 
+        [&wallet, &stream, &client](const QString& response_string)
     {
-        stream << "Received transaction: "
-            << response.toStdString() << std::endl;
+        auto response = json::parse(response_string.toStdString());
+        auto tx_id = response["tx"]["id"].get<uint32_t>();
+        const auto salt = dark::new_key();
+        keys_map[tx_id] = salt;
+        const auto witness = salt * bc::ec_point::G;
+        json send_json = {
+            {"command", "request_send_reply"},
+            {"tx", {
+                {"id", tx_id}
+            }},
+            {"witness_i", bc::encode_base16(witness.point())}
+        };
+        stream << "Sending our key: " << send_json.dump(4) << std::endl;
+        client.send(send_json.dump());
+    };
+
+    dark::listen_worker_thread *preworker = new dark::listen_worker_thread(
+        username, "request_send");
+    QObject::connect(preworker, &dark::listen_worker_thread::ready,
+        QCoreApplication::instance(), pre_receive_tx);
+    QObject::connect(preworker, &dark::listen_worker_thread::finished,
+        preworker, &QObject::deleteLater);
+    preworker->start();
+
+    auto receive_tx = 
+        [&wallet, &client, &stream](const QString& response)
+    {
+        receive_money(wallet, client, response.toStdString(), stream);
     };
 
     dark::listen_worker_thread *worker = new dark::listen_worker_thread(
-        username);
+        username, "send");
     QObject::connect(worker, &dark::listen_worker_thread::ready,
         QCoreApplication::instance(), receive_tx);
     QObject::connect(worker, &dark::listen_worker_thread::finished,
