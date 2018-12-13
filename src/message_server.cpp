@@ -2,13 +2,12 @@
 
 #include <iostream>
 #include <string>
-#include <nlohmann/json.hpp>
+#include <dark/utility.hpp>
 
 namespace dark {
 
-using json = nlohmann::json;
-
-message_server::message_server()
+message_server::message_server(dark::blockchain& chain)
+  : chain_(chain)
 {
     receiver_socket_ = zsock_new(ZMQ_PULL);
     zsock_bind(receiver_socket_, "tcp://*:8888");
@@ -32,13 +31,85 @@ void message_server::start()
 
         const auto response = json::parse(result);
         if (response.count("command") && response["command"] == "broadcast")
-        {
-            std::cout << "Special case!" << std::endl;
-            std::cout << response.dump(4) << std::endl;
-        }
+            accept_if_valid(response);
         else
             zstr_send(publish_socket_, result.data());
     }
+}
+
+void message_server::accept_if_valid(json response)
+{
+    const auto tx = transaction_from_json(response);
+
+    // verify outputs and inputs
+    bc::ec_point excess;
+    bool is_init = false;
+    for (const auto& output: tx.outputs)
+    {
+        if (!is_init)
+        {
+            is_init = true;
+            excess = output.output;
+        }
+        else
+            excess += output.output;
+    }
+    for (const auto input: tx.inputs)
+    {
+        if (input >= chain_.count() || !chain_.exists(input))
+        {
+            std::cout << "Invalid input. Rejecting tx" << std::endl;
+            return;
+        }
+        auto result = chain_.get(input);
+        bc::ec_compressed point;
+        std::copy(result, result + bc::ec_compressed_size, point.begin());
+        excess -= point;
+    }
+    if (tx.kernel.excess != excess)
+    {
+        std::cout << "Excess values do not sum. Rejecting tx" << std::endl;
+        return;
+    }
+
+    // validate attached signature
+    if (!dark::verify(tx.kernel.signature, tx.kernel.excess))
+    {
+        std::cout << "Signature does not verify. Rejecting tx" << std::endl;
+        return;
+    }
+
+    std::cout << "Accepting transaction..." << std::endl;
+
+    typedef std::vector<output_index_type> index_list;
+    index_list removed_indexes, added_indexes;
+
+    for (const auto input: tx.inputs)
+    {
+        BITCOIN_ASSERT(input < chain_.count());
+        BITCOIN_ASSERT(chain_.exists(input));
+        chain_.remove(input);
+        removed_indexes.push_back(input);
+        std::cout << "Removed #" << input << std::endl;
+    }
+    response["added"] = json::array();
+    for (const auto& output: tx.outputs)
+    {
+        auto index = chain_.put(output.output);
+        added_indexes.push_back(index);
+        std::cout << "Allocated #" << index << ": "
+            << bc::encode_base16(output.output.point()) << std::endl;
+        response["added"].push_back({
+            {"index", index},
+            {"point", bc::encode_base16(output.output.point())}
+        });
+    }
+
+    response["command"] = "final";
+    response["removed"] = removed_indexes;
+    auto result = response.dump();
+    std::cout << "Final stage: " << response.dump(4) << std::endl;
+    zstr_send(publish_socket_, result.data());
 }
 
 } // namespace dark

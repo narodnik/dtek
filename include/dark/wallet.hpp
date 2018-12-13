@@ -26,8 +26,13 @@ class wallet
 public:
     wallet(const std::string& filename);
 
-    void insert(size_t index, const bc::ec_point& point,
+    void insert(const bc::ec_point& point,
         const bc::ec_secret& secret, uint64_t value);
+    bool do_update(const bc::ec_point& point, size_t index);
+
+    bool exists(size_t index);
+    bool exists(const bc::ec_point& point);
+    void remove(size_t index);
 
     uint64_t balance();
 

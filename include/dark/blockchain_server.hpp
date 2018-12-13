@@ -29,6 +29,8 @@ public:
     ~blockchain_server();
 
     void start();
+
+    dark::blockchain& chain();
 private:
     blockchain_server_request receive();
     void reply(const blockchain_server_request& request);

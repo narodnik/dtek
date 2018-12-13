@@ -23,6 +23,11 @@ void blockchain_server::start()
     }
 }
 
+dark::blockchain& blockchain_server::chain()
+{
+    return chain_;
+}
+
 blockchain_server_request blockchain_server::receive()
 {
     blockchain_server_request request;

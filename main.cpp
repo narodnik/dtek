@@ -206,8 +206,44 @@ void add_output(dark::wallet& wallet, uint64_t value)
     auto index = chain.put(point);
 
     // Add to wallet
-    wallet.insert(index, point, secret, value);
+    wallet.insert(point, secret, value);
+    wallet.do_update(point, index);
 }
+
+void final_update_wallet(dark::wallet& wallet,
+    const std::string& response_string,
+    std::ostream& stream)
+{
+    const auto response = json::parse(response_string);
+    stream << "Final response!" << response.dump(4) << std::endl;
+
+    for (auto index_obj: response["removed"])
+    {
+        auto index = index_obj.get<uint32_t>();
+        if (wallet.exists(index))
+        {
+            stream << "Removing index #" << index << std::endl;
+            wallet.remove(index);
+        }
+    }
+
+    // Add to wallet
+    for (auto added: response["added"])
+    {
+        auto index = added["index"].get<uint32_t>();
+        auto point_string = added["point"].get<std::string>();
+        bc::ec_compressed point;
+        bool rc = bc::decode_base16(point, point_string);
+        BITCOIN_ASSERT(rc);
+        if (wallet.exists(point))
+        {
+            stream << "Added index #" << index << " for "
+                << point_string << std::endl;
+            wallet.do_update(point, index);
+        }
+    }
+}
+
 
 template <typename ShowErrorFunction>
 void send_money_2(const std::string& username,
@@ -321,6 +357,8 @@ void send_money_2(const std::string& username,
             change_output->point,
             change_output->rangeproof
         });
+        wallet.insert(
+            change_output->point, change_output->secret, change_amount);
     }
 
     // compute excess
@@ -396,8 +434,7 @@ void send_money_2(const std::string& username,
     auto continue_send = 
         [=, &wallet, &stream](const QString& response)
     {
-        continue_send_money(username, wallet, destination, amount,
-            response.toStdString(), stream, show_error);
+        final_update_wallet(wallet, response.toStdString(), stream);
     };
 
     dark::client_worker_thread *worker = new dark::client_worker_thread(
@@ -424,48 +461,6 @@ void continue_send_money(const std::string& username, dark::wallet& wallet,
     auto response = json::parse(response_string);
     stream << "Received response: " << response.dump(4) << std::endl;
 
-    // Add to wallet
-    //wallet.insert(index, point, secret, value);
-}
-
-dark::transaction from_json(json& response)
-{
-    dark::transaction tx;
-    tx.kernel.fee = response["tx"]["kernel"]["fee"].get<uint64_t>();
-    bc::ec_compressed excess_point;
-    bool rc = bc::decode_base16(
-        excess_point, response["tx"]["kernel"]["excess"].get<std::string>());
-    BITCOIN_ASSERT(rc);
-    tx.kernel.excess = excess_point;
-    bc::ec_compressed witness_point;
-    rc = bc::decode_base16(
-        witness_point,
-        response["tx"]["kernel"]["signature"]["witness"].get<std::string>());
-    tx.kernel.signature.witness = witness_point;
-    BITCOIN_ASSERT(rc);
-    bc::ec_secret signature_response;
-    rc = bc::decode_base16(
-        signature_response,
-        response["tx"]["kernel"]["signature"]["response"].get<std::string>());
-    BITCOIN_ASSERT(rc);
-    tx.kernel.signature.response = signature_response;
-
-    for (auto& input: response["tx"]["inputs"])
-    {
-        tx.inputs.push_back(input.get<uint32_t>());
-    }
-
-    for (auto& output: response["tx"]["outputs"])
-    {
-        bc::ec_compressed output_point;
-        rc = bc::decode_base16(output_point, output["output"]);
-        BITCOIN_ASSERT(rc);
-        tx.outputs.push_back(dark::transaction_output{
-            output_point,
-            dark::transaction_rangeproof()
-        });
-    }
-    return tx;
 }
 
 void receive_money(dark::wallet& wallet, dark::message_client& client,
@@ -474,7 +469,7 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     auto response = json::parse(response_string);
     stream << "Received transaction: " << response.dump(4) << std::endl;
 
-    auto tx = from_json(response);
+    auto tx = dark::transaction_from_json(response);
     uint64_t amount = response["amount"].get<uint64_t>();
     const uint32_t tx_id = response["tx"]["id"].get<uint32_t>();
 
@@ -493,6 +488,8 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
 
     // create new output
     auto output = assign_output(amount, stream);
+
+    wallet.insert(output.point, output.secret, amount);
 
     // compute excess
     const auto excess_secret = output.secret;
@@ -586,8 +583,7 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     auto final_receive = 
         [=, &wallet, &stream](const QString& response_string)
     {
-        const auto response = json::parse(response_string.toStdString());
-        stream << "Final response!" << response.dump(4) << std::endl;
+        final_update_wallet(wallet, response_string.toStdString(), stream);
     };
 
     dark::client_worker_thread *worker = new dark::client_worker_thread(
@@ -813,14 +809,16 @@ int main(int argc, char** argv)
     }
     else if (result.count("server"))
     {
-        std::thread thread([]
+        dark::blockchain_server server;
+        auto& chain = server.chain();
+
+        std::thread thread([&chain]
         {
-            dark::message_server server;
+            dark::message_server server(chain);
             server.start();
         });
         thread.detach();
 
-        dark::blockchain_server server;
         server.start();
         return 0;
     }
