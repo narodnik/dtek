@@ -1,43 +1,64 @@
-Make sure you have these environment variables set in your ~/.bashrc
+Developed on Manjaro Linux
 
-export PKG_CONFIG_PATH=/home/myuser/usr/lib/pkgconfig
-export LD_LIBRARY_PATH=/home/myuser/usr/lib
-export PATH=$PATH:/home/myuser/usr/bin/
+=========================
+Ubuntu 18.10 instructions
+=========================
 
-(make sure to reload your terminal before continuing)
+As root navigate to home dir:
 
-Dependencies:
+  $ sudo su
+  # cd
 
-* Qt5
-* sqlcipher
-* libbitcoin
-* libbitcoin-database
-* libczmq
-* libsqlpp11
-* libsqlpp11-connector-sqlite3
+Then download and run the install script:
 
-Qt5 and sqlcipher can be installed from your distros repos.
+  # wget https://raw.githubusercontent.com/narodnik/dtek/master/ubuntu-install.sh
+  # chmod +x ubuntu-install.sh
+  # ./ubuntu-install.sh
 
-NOTE: my distro has a bug in its packaged version of sqlcipher.
-Ensure you get this output:
+This will build the wallet in the root dir.
 
-$ pkg-config --cflags sqlcipher
--I/usr/include/sqlcipher -DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2 
+Change permissions and move it into user home directory (replace myuser with
+your username):
 
-If not then please modify the file /usr/lib/pkgconfig/sqlcipher.pc
-and change this line to add the 2 missing flags beginning with -D:
+  # chown myuser:myuser -R dtek/
+  # mv dtek ~myuser
 
-Cflags: -I${includedir}/sqlcipher -DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2
+Now press CTRL-D to exit from root:
 
-For the other libraries, use --prefix to install into the local user directory.
+  <CTRL-D>
+  $
 
-$ ./configure --prefix /home/myuser/usr/
-$ make
-$ make install
+Now create 3 terminals. We will represent them by 1$, 2$ and 3$.
 
-Finally build the project:
+  1$ - terminal for the server
+  2$ - for the wallet of user 'harry'
+  3$ - for the wallet of user 'dave'
 
-$ qmake darktech.pro
-$ make
-$ ./darktech
+First start the server:
+
+  1$ cd dtek/
+  1$ ./darktech --server
+
+Next we will create a wallet for harry and give him 10 BTC. We represent
+the amount on the commandline using satoshis (10 * 10^8):
+
+  2$ cd dtek/
+  2$ ./darktech -u harry -w harry.db -a 1000000000
+
+Now start harry's wallet. He should have a balance of 10 BTC:
+
+  2$ ./darktech -u harry -w harry.db
+
+Now start dave's wallet. He should have a balance of 0 BTC:
+
+  3$ ./darktech -u dave -w dave.db
+
+In harry's wallet, enter dave as the destination and the amount you wish
+to send, then click send.
+
+Vice versa for dave sending to harry.
+
+Lastly to reset the demo, delete these files:
+
+  $ rm -fr blockchain/ harry.db dave.db
 

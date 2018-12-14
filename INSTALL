@@ -1,0 +1,43 @@
+Make sure you have these environment variables set in your ~/.bashrc
+
+export PKG_CONFIG_PATH=/home/myuser/usr/lib/pkgconfig
+export LD_LIBRARY_PATH=/home/myuser/usr/lib
+export PATH=$PATH:/home/myuser/usr/bin/
+
+(make sure to reload your terminal before continuing)
+
+Dependencies:
+
+* Qt5
+* sqlcipher
+* libbitcoin
+* libbitcoin-database
+* libczmq
+* libsqlpp11
+* libsqlpp11-connector-sqlite3
+
+Qt5 and sqlcipher can be installed from your distros repos.
+
+NOTE: my distro has a bug in its packaged version of sqlcipher.
+Ensure you get this output:
+
+$ pkg-config --cflags sqlcipher
+-I/usr/include/sqlcipher -DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2 
+
+If not then please modify the file /usr/lib/pkgconfig/sqlcipher.pc
+and change this line to add the 2 missing flags beginning with -D:
+
+Cflags: -I${includedir}/sqlcipher -DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2
+
+For the other libraries, use --prefix to install into the local user directory.
+
+$ ./configure --prefix /home/myuser/usr/
+$ make
+$ make install
+
+Finally build the project:
+
+$ qmake darktech.pro
+$ make
+$ ./darktech
+
