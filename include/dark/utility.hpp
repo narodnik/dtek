@@ -18,6 +18,11 @@ uint32_t random_uint();
 
 dark::transaction transaction_from_json(const json& response);
 
+constexpr size_t proofsize = 64;
+
+json rangeproof_to_json(const transaction_rangeproof& rangeproof);
+transaction_rangeproof rangeproof_from_json(const json& response);
+
 } // namespace dark
 
 #endif

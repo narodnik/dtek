@@ -67,10 +67,64 @@ transaction transaction_from_json(const json& response)
         BITCOIN_ASSERT(rc);
         tx.outputs.push_back(dark::transaction_output{
             output_point,
-            dark::transaction_rangeproof()
+            rangeproof_from_json(output["rangeproof"])
         });
     }
     return tx;
+}
+
+json rangeproof_to_json(const transaction_rangeproof& rangeproof)
+{
+    json result = {
+        {"commitments", json::array()},
+        {"signature", {
+            {"challenge", "XX"},
+            {"proofs", json::array()}
+    }}};
+    for (const auto& commitment: rangeproof.commitments)
+    {
+        result["commitments"].push_back(
+            bc::encode_base16(commitment));
+    }
+    result["signature"]["challenge"] = bc::encode_base16(
+        rangeproof.signature.challenge);
+    for (const auto& secret_list: rangeproof.signature.proofs)
+    {
+        auto secrets = json::array();
+        for (const auto& secret: secret_list)
+            secrets.push_back(bc::encode_base16(secret));
+        result["signature"]["proofs"].push_back(secrets);
+    }
+    return result;
+}
+
+transaction_rangeproof rangeproof_from_json(const json& response)
+{
+    transaction_rangeproof rangeproof;
+    for (auto commitment_string: response["commitments"])
+    {
+        bc::ec_compressed commitment;
+        bool rc = bc::decode_base16(commitment, commitment_string);
+        BITCOIN_ASSERT(rc);
+        rangeproof.commitments.push_back(commitment);
+    }
+    bc::ec_secret challenge;
+    bool rc = bc::decode_base16(challenge, response["signature"]["challenge"]);
+    BITCOIN_ASSERT(rc);
+    rangeproof.signature.challenge = challenge;
+    for (auto proofs_list: response["signature"]["proofs"])
+    {
+        bc::secret_list secrets;
+        for (auto proof_string: proofs_list)
+        {
+            bc::ec_secret proof;
+            rc = bc::decode_base16(proof, proof_string);
+            BITCOIN_ASSERT(rc);
+            secrets.push_back(proof);
+        }
+        rangeproof.signature.proofs.push_back(secrets);
+    }
+    return rangeproof;
 }
 
 } // namespace dark

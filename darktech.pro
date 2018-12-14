@@ -27,6 +27,12 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 CONFIG += c++14
 
+OTHER_FILES += \
+    5c1215be3185eaec3e73c136_cyphersquatt.svg
+
+RESOURCES += \
+    darktech.qrc
+
 # Input
 FORMS += darkwallet.ui
 HEADERS += include/dark/message_client.hpp

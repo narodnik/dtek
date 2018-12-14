@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <dark/utility.hpp>
+#include <dark/wallet.hpp>
 
 namespace dark {
 
@@ -77,6 +78,29 @@ void message_server::accept_if_valid(json response)
     {
         std::cout << "Signature does not verify. Rejecting tx" << std::endl;
         return;
+    }
+
+    // verify rangeproofs
+    for (const auto& output: tx.outputs)
+    {
+        const auto& rangeproof = output.rangeproof;
+
+        bc::key_rings test_rings;
+        for (size_t i = 0; i < proofsize; ++i)
+        {
+            const auto& commitment = rangeproof.commitments[i];
+            const uint64_t value_2i = std::pow(2, i);
+            test_rings.push_back({
+                commitment,
+                commitment - bc::ec_scalar(value_2i) * dark::ec_point_H });
+        }
+
+        // Verify rangeproof
+        if (!bc::verify(test_rings, bc::null_hash, rangeproof.signature))
+        {
+            std::cout << "Rangeproof failed. Rejecting tx" << std::endl;
+            return;
+        }
     }
 
     std::cout << "Accepting transaction..." << std::endl;

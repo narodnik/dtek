@@ -70,8 +70,7 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
 {
     stream << "assign_output(" << value << ")" << std::endl;
 
-    constexpr size_t proofsize = 64;
-    typedef std::array<bc::ec_scalar, proofsize> subkeys_list;
+    typedef std::array<bc::ec_scalar, dark::proofsize> subkeys_list;
 
     subkeys_list subkeys;
     auto secret = bc::ec_scalar::zero;
@@ -93,12 +92,12 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
 
     // [d_1 G + v_(0|1) H] + [d_2 G + v_(0|2) H] + [d_3 G + v_(0|4) H] + ...
     dark::transaction_rangeproof rangeproof;
-    rangeproof.commitments.reserve(proofsize);
+    rangeproof.commitments.reserve(dark::proofsize);
     // Used for making the signature
     bc::key_rings rangeproof_rings;
     bc::secret_list rangeproof_secrets, rangeproof_salts;
     uint64_t value_checker = 0;
-    for (size_t i = 0; i < proofsize; ++i)
+    for (size_t i = 0; i < dark::proofsize; ++i)
     {
         BITCOIN_ASSERT(i < subkeys.size());
         const auto& subkey = subkeys[i];
@@ -165,9 +164,9 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
         rangeproof_rings, bc::null_hash, rangeproof_salts);
     BITCOIN_ASSERT(rc);
 
-    BITCOIN_ASSERT(rangeproof.commitments.size() == proofsize);
+    BITCOIN_ASSERT(rangeproof.commitments.size() == dark::proofsize);
     bc::key_rings test_rings;
-    for (size_t i = 0; i < proofsize; ++i)
+    for (size_t i = 0; i < dark::proofsize; ++i)
     {
         const auto& commitment = rangeproof.commitments[i];
         const uint64_t value_2i = std::pow(2, i);
@@ -429,7 +428,8 @@ void send_money_2(const std::string& username,
     for (const auto& output: tx.outputs)
     {
         send_json["tx"]["outputs"].push_back({
-            {"output", bc::encode_base16(output.output.point())}
+            {"output", bc::encode_base16(output.output.point())},
+            {"rangeproof", dark::rangeproof_to_json(output.rangeproof)}
         });
     }
     stream << send_json.dump(4) << std::endl;
@@ -547,7 +547,8 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     for (const auto& output: tx.outputs)
     {
         send_json["tx"]["outputs"].push_back({
-            {"output", bc::encode_base16(output.output.point())}
+            {"output", bc::encode_base16(output.output.point())},
+            {"rangeproof", dark::rangeproof_to_json(output.rangeproof)}
         });
     }
 
