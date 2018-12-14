@@ -2,7 +2,6 @@
 
 #include <thread>
 #include <boost/optional.hpp>
-#include <boost/range/irange.hpp>
 #include <cxxopts.hpp>
 #include <QDateTime>
 #include <QMessageBox>
@@ -629,7 +628,8 @@ void read_all()
 {
     //dark::blockchain chain;
     dark::blockchain_client chain;
-    for (auto i: boost::irange(chain.count()))
+    const auto chain_count = chain.count();
+    for (size_t i = 0; i < chain_count; ++i)
     {
         if (!chain.exists(i))
             continue;
@@ -648,7 +648,8 @@ void set_commit_table(QTableWidget* table)
     table->setRowCount(0);
 
     dark::blockchain_client chain;
-    for (auto i: boost::irange(chain.count()))
+    const auto chain_count = chain.count();
+    for (size_t i = 0; i < chain_count; ++i)
     {
         if (!chain.exists(i))
             continue;
