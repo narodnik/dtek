@@ -640,6 +640,7 @@ void read_all()
 
 void set_commit_table(QTableWidget* table)
 {
+    table->clear();
     table->horizontalHeader()->setSectionResizeMode(
         QHeaderView::ResizeToContents);
     table->setRowCount(0);
