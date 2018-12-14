@@ -329,8 +329,10 @@ void send_money_2(const std::string& username,
     const bc::ec_point witness_2 = other_witness_point;
 
     const uint64_t balance = wallet.balance();
+    BITCOIN_ASSERT(amount <= balance);
 
-    auto selected = wallet.select_outputs(amount);
+    uint64_t total_amount = 0;
+    auto selected = wallet.select_outputs(amount, total_amount);
     stream << "Selected:";
     for (const auto& row: selected)
         stream << " " << row.index;
@@ -344,13 +346,12 @@ void send_money_2(const std::string& username,
     typedef boost::optional<assign_output_result> optional_output;
     optional_output change_output;
 
-    BITCOIN_ASSERT(amount <= balance);
     // If we have remaining coins after sending then compute change output
-    if (amount < balance)
+    if (amount < total_amount)
     {
         // calculate change amount
-        auto change_amount = balance - amount;
-        BITCOIN_ASSERT(amount + change_amount == balance);
+        auto change_amount = total_amount - amount;
+        BITCOIN_ASSERT(amount + change_amount == total_amount);
         stream << "Change: " << change_amount << std::endl;
         // Create change output
         // Create 64 private keys, which are used for the rangeproof

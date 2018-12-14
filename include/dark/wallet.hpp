@@ -36,7 +36,8 @@ public:
 
     uint64_t balance();
 
-    selected_output_list select_outputs(uint64_t send_value);
+    selected_output_list select_outputs(
+        uint64_t send_value, uint64_t& total_amount);
 private:
     sql::connection_config config_;
     sql::connection db_;

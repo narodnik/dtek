@@ -93,12 +93,13 @@ uint64_t wallet::balance()
     return balance;
 }
 
-selected_output_list wallet::select_outputs(uint64_t send_value)
+selected_output_list wallet::select_outputs(
+    uint64_t send_value, uint64_t& total_amount)
 {
     selected_output_list selected;
     dark::WalletTable wallet_table;
 
-    uint64_t total_amount = 0;
+    total_amount = 0;
     for(const auto& row: db_(
         select(all_of(wallet_table)).from(wallet_table).where(
             wallet_table.idx.is_not_null())))
@@ -114,11 +115,10 @@ selected_output_list wallet::select_outputs(uint64_t send_value)
         uint64_t value = row.value;
         total_amount += value;
         if (total_amount >= send_value)
-            break;
+            return selected;
     }
-    if (total_amount < send_value)
-        return selected_output_list();
-    return selected;
+    BITCOIN_ASSERT(total_amount < send_value);
+    return selected_output_list();
 }
 
 } // namespace dark
