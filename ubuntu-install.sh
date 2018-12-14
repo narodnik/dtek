@@ -1,6 +1,7 @@
 #!/bin/bash -x
 
-apt -y install build-essential libboost-all-dev libsqlcipher-dev git libcurl4-openssl-dev qt5-defaults cmake libsqlite3-dev libssl-dev
+apt update
+apt -y install build-essential libboost-all-dev libsqlcipher-dev git libcurl4-openssl-dev qt5-default cmake libsqlite3-dev libssl-dev
 
 sed -i "s/Cflags: -I\${includedir}\/sqlcipher/Cflags: -I\${includedir}\/sqlcipher -DSQLITE_HAS_CODEC -DSQLITE_TEMP_STORE=2/" 
 
