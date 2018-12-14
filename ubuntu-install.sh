@@ -87,3 +87,5 @@ cd dtek
 qmake darktech.pro
 make -j2
 
+ldconfig
+
