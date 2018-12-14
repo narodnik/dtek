@@ -21,6 +21,8 @@ using json = nlohmann::json;
 
 typedef std::unordered_map<uint32_t, bc::ec_scalar> keys_map_type;
 
+typedef std::function<void ()> update_balance_callback;
+
 keys_map_type keys_map;
 
 bool is_bit_set(uint64_t value, size_t i)
@@ -50,7 +52,7 @@ void show_balance(dark::wallet& wallet)
     std::cout << wallet.balance() << std::endl;
 }
 
-void update_balance(dark::wallet& wallet, QLabel* balance_label)
+void do_update_balance(dark::wallet& wallet, QLabel* balance_label)
 {
     auto balance_string = QString::fromStdString(
         bc::encode_base10(wallet.balance(), 8));
@@ -212,7 +214,8 @@ void add_output(dark::wallet& wallet, uint64_t value)
 
 void final_update_wallet(dark::wallet& wallet,
     const std::string& response_string,
-    std::ostream& stream)
+    std::ostream& stream,
+    update_balance_callback update_balance)
 {
     const auto response = json::parse(response_string);
     stream << "Final response!" << response.dump(4) << std::endl;
@@ -242,6 +245,8 @@ void final_update_wallet(dark::wallet& wallet,
             wallet.do_update(point, index);
         }
     }
+
+    update_balance();
 }
 
 
@@ -250,18 +255,15 @@ void send_money_2(const std::string& username,
     dark::wallet& wallet, dark::message_client& client,
     const std::string& destination, uint64_t amount,
     const std::string& response, const uint32_t tx_id,
-    std::ostream& stream, ShowErrorFunction show_error);
-
-template <typename ShowErrorFunction>
-void continue_send_money(const std::string& username, dark::wallet& wallet,
-    const std::string& destination, uint64_t amount,
-    std::ostream& stream, ShowErrorFunction show_error);
+    std::ostream& stream, ShowErrorFunction show_error,
+    update_balance_callback update_balance);
 
 template <typename ShowErrorFunction>
 bool send_money(const std::string& username,
     dark::wallet& wallet, dark::message_client& client,
     const std::string& destination, uint64_t amount,
-    std::ostream& stream, ShowErrorFunction show_error)
+    std::ostream& stream, ShowErrorFunction show_error,
+    update_balance_callback update_balance)
 {
     uint64_t balance = wallet.balance();
 
@@ -286,7 +288,7 @@ bool send_money(const std::string& username,
         [=, &wallet, &client, &stream](const QString& response)
     {
         send_money_2(username, wallet, client, destination, amount,
-            response.toStdString(), tx_id, stream, show_error);
+            response.toStdString(), tx_id, stream, show_error, update_balance);
     };
 
     dark::client_worker_thread *preworker = new dark::client_worker_thread(
@@ -314,7 +316,8 @@ void send_money_2(const std::string& username,
     dark::wallet& wallet, dark::message_client& client,
     const std::string& destination, uint64_t amount,
     const std::string& response_other, const uint32_t tx_id,
-    std::ostream& stream, ShowErrorFunction show_error)
+    std::ostream& stream, ShowErrorFunction show_error,
+    update_balance_callback update_balance)
 {
     auto response_keys = json::parse(response_other);
     bc::ec_compressed other_witness_point;
@@ -434,7 +437,8 @@ void send_money_2(const std::string& username,
     auto continue_send = 
         [=, &wallet, &stream](const QString& response)
     {
-        final_update_wallet(wallet, response.toStdString(), stream);
+        final_update_wallet(wallet, response.toStdString(),
+            stream, update_balance);
     };
 
     dark::client_worker_thread *worker = new dark::client_worker_thread(
@@ -452,19 +456,9 @@ void send_money_2(const std::string& username,
     stream << "Waiting for response back" << std::endl;
 }
 
-template <typename ShowErrorFunction>
-void continue_send_money(const std::string& username, dark::wallet& wallet,
-    const std::string& destination, uint64_t amount,
-    const std::string& response_string,
-    std::ostream& stream, ShowErrorFunction show_error)
-{
-    auto response = json::parse(response_string);
-    stream << "Received response: " << response.dump(4) << std::endl;
-
-}
-
 void receive_money(dark::wallet& wallet, dark::message_client& client,
-    std::string response_string, std::ostream& stream)
+    std::string response_string, std::ostream& stream,
+    update_balance_callback update_balance)
 {
     auto response = json::parse(response_string);
     stream << "Received transaction: " << response.dump(4) << std::endl;
@@ -583,7 +577,8 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     auto final_receive = 
         [=, &wallet, &stream](const QString& response_string)
     {
-        final_update_wallet(wallet, response_string.toStdString(), stream);
+        final_update_wallet(wallet, response_string.toStdString(),
+            stream, update_balance);
     };
 
     dark::client_worker_thread *worker = new dark::client_worker_thread(
@@ -838,6 +833,12 @@ int main(int argc, char** argv)
         QMessageBox::critical(window, "Dark Wallet", message);
     };
 
+    auto update_balance = [&wallet, &ui]
+    {
+        set_commit_table(ui.commitment_table);
+        do_update_balance(wallet, ui.balance_label);
+    };
+
     QObject::connect(ui.send_button, &QPushButton::clicked, [&]()
     {
         auto amount_string = ui.amount_lineedit->text().toStdString();
@@ -855,7 +856,7 @@ int main(int argc, char** argv)
             return;
         }
         send_money(username, wallet, client,
-            destination, amount, stream, popup_error);
+            destination, amount, stream, popup_error, update_balance);
     });
 
     auto pre_receive_tx = 
@@ -886,9 +887,10 @@ int main(int argc, char** argv)
     preworker->start();
 
     auto receive_tx = 
-        [&wallet, &client, &stream](const QString& response)
+        [&wallet, &client, &stream, update_balance](const QString& response)
     {
-        receive_money(wallet, client, response.toStdString(), stream);
+        receive_money(wallet, client, response.toStdString(),
+            stream, update_balance);
     };
 
     dark::listen_worker_thread *worker = new dark::listen_worker_thread(
@@ -899,8 +901,9 @@ int main(int argc, char** argv)
         worker, &QObject::deleteLater);
     worker->start();
 
-    set_commit_table(ui.commitment_table);
-    update_balance(wallet, ui.balance_label);
+    update_balance();
+
+    stream << "Username: " << username << std::endl;
 
     window->show();
     return app.exec();
