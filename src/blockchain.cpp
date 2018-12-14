@@ -2,7 +2,6 @@
 
 #include <memory>
 #include <boost/filesystem.hpp>
-#include <boost/range/irange.hpp>
 
 namespace dark {
 
@@ -48,7 +47,8 @@ blockchain::~blockchain()
 
 output_index_type blockchain::next_available_record()
 {
-    for (auto i: boost::irange(count()))
+    const auto chain_count = count();
+    for (size_t i = 0; i < chain_count; ++i)
         if (!exists(i))
             return i;
     const auto index = records_->allocate(1);
