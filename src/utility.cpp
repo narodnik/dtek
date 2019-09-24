@@ -2,25 +2,25 @@
 
 namespace dark {
 
-bc::ec_secret new_key()
+bcs::ec_secret new_key()
 {
     const auto seed = new_seed();
     return new_key(seed);
 }
 
 // The key may be invalid, caller may test for null secret.
-bc::ec_secret new_key(const bc::data_chunk& seed)
+bcs::ec_secret new_key(const bcs::data_chunk& seed)
 {
-    const bc::wallet::hd_private key(seed);
+    const bcs::wallet::hd_private key(seed);
     return key.secret();
 }
 
 // Not testable due to lack of random engine injection.
-bc::data_chunk new_seed(size_t bit_length)
+bcs::data_chunk new_seed(size_t bit_length)
 {
     size_t fill_seed_size = bit_length / bc::byte_bits;
-    bc::data_chunk seed(fill_seed_size);
-    bc::pseudo_random_fill(seed);
+    bcs::data_chunk seed(fill_seed_size);
+    bcs::pseudo_random_fill(seed);
     return seed;
 }
 
@@ -37,19 +37,19 @@ transaction transaction_from_json(const json& response)
 {
     dark::transaction tx;
     tx.kernel.fee = response["tx"]["kernel"]["fee"].get<uint64_t>();
-    bc::ec_compressed excess_point;
-    bool rc = bc::decode_base16(
+    bcs::ec_compressed excess_point;
+    bool rc = bcs::decode_base16(
         excess_point, response["tx"]["kernel"]["excess"].get<std::string>());
     BITCOIN_ASSERT(rc);
     tx.kernel.excess = excess_point;
-    bc::ec_compressed witness_point;
-    rc = bc::decode_base16(
+    bcs::ec_compressed witness_point;
+    rc = bcs::decode_base16(
         witness_point,
         response["tx"]["kernel"]["signature"]["witness"].get<std::string>());
     tx.kernel.signature.witness = witness_point;
     BITCOIN_ASSERT(rc);
-    bc::ec_secret signature_response;
-    rc = bc::decode_base16(
+    bcs::ec_secret signature_response;
+    rc = bcs::decode_base16(
         signature_response,
         response["tx"]["kernel"]["signature"]["response"].get<std::string>());
     BITCOIN_ASSERT(rc);
@@ -62,8 +62,8 @@ transaction transaction_from_json(const json& response)
 
     for (auto& output: response["tx"]["outputs"])
     {
-        bc::ec_compressed output_point;
-        rc = bc::decode_base16(output_point, output["output"]);
+        bcs::ec_compressed output_point;
+        rc = bcs::decode_base16(output_point, output["output"]);
         BITCOIN_ASSERT(rc);
         tx.outputs.push_back(dark::transaction_output{
             output_point,
@@ -84,15 +84,15 @@ json rangeproof_to_json(const transaction_rangeproof& rangeproof)
     for (const auto& commitment: rangeproof.commitments)
     {
         result["commitments"].push_back(
-            bc::encode_base16(commitment));
+            bcs::encode_base16(commitment));
     }
-    result["signature"]["challenge"] = bc::encode_base16(
+    result["signature"]["challenge"] = bcs::encode_base16(
         rangeproof.signature.challenge);
     for (const auto& secret_list: rangeproof.signature.proofs)
     {
         auto secrets = json::array();
         for (const auto& secret: secret_list)
-            secrets.push_back(bc::encode_base16(secret));
+            secrets.push_back(bcs::encode_base16(secret));
         result["signature"]["proofs"].push_back(secrets);
     }
     return result;
@@ -103,22 +103,22 @@ transaction_rangeproof rangeproof_from_json(const json& response)
     transaction_rangeproof rangeproof;
     for (auto commitment_string: response["commitments"])
     {
-        bc::ec_compressed commitment;
-        bool rc = bc::decode_base16(commitment, commitment_string);
+        bcs::ec_compressed commitment;
+        bool rc = bcs::decode_base16(commitment, commitment_string);
         BITCOIN_ASSERT(rc);
         rangeproof.commitments.push_back(commitment);
     }
-    bc::ec_secret challenge;
-    bool rc = bc::decode_base16(challenge, response["signature"]["challenge"]);
+    bcs::ec_secret challenge;
+    bool rc = bcs::decode_base16(challenge, response["signature"]["challenge"]);
     BITCOIN_ASSERT(rc);
     rangeproof.signature.challenge = challenge;
     for (auto proofs_list: response["signature"]["proofs"])
     {
-        bc::secret_list secrets;
+        bcs::secret_list secrets;
         for (auto proof_string: proofs_list)
         {
-            bc::ec_secret proof;
-            rc = bc::decode_base16(proof, proof_string);
+            bcs::ec_secret proof;
+            rc = bcs::decode_base16(proof, proof_string);
             BITCOIN_ASSERT(rc);
             secrets.push_back(proof);
         }

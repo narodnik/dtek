@@ -1,22 +1,24 @@
 #ifndef DARK_TRANSACTION_HPP
 #define DARK_TRANSACTION_HPP
 
-#include <bitcoin/bitcoin.hpp>
+#include <bitcoin/system.hpp>
 #include <dark/blockchain.hpp>
 
 namespace dark {
 
+namespace bcs = bc::system;
+
 struct schnorr_signature
 {
-    bc::ec_point witness;
-    bc::ec_scalar response;
+    bcs::ec_point witness;
+    bcs::ec_scalar response;
 };
 
-schnorr_signature sign(const bc::ec_scalar& secret,
-    const bc::ec_scalar& salt, const bc::ec_point& other_R);
-bool verify(const schnorr_signature& signature, const bc::ec_point& key,
-    const bc::ec_point& other_R);
-bool verify(const schnorr_signature& signature, const bc::ec_point& key);
+schnorr_signature sign(const bcs::ec_scalar& secret,
+    const bcs::ec_scalar& salt, const bcs::ec_point& other_R);
+bool verify(const schnorr_signature& signature, const bcs::ec_point& key,
+    const bcs::ec_point& other_R);
+bool verify(const schnorr_signature& signature, const bcs::ec_point& key);
 schnorr_signature aggregate(
     const schnorr_signature& left, const schnorr_signature& right);
 
@@ -25,13 +27,13 @@ typedef std::vector<input_index_type> input_index_list;
 
 struct transaction_rangeproof
 {
-    bc::point_list commitments;
-    bc::ring_signature signature;
+    bcs::point_list commitments;
+    bcs::ring_signature signature;
 };
 
 struct transaction_output
 {
-    bc::ec_point output;
+    bcs::ec_point output;
     transaction_rangeproof rangeproof;
 };
 
@@ -40,7 +42,7 @@ typedef std::vector<transaction_output> output_list;
 struct transaction_kernel
 {
     uint64_t fee;
-    bc::ec_point excess;
+    bcs::ec_point excess;
     schnorr_signature signature;
 };
 
@@ -51,7 +53,7 @@ struct transaction
     transaction_kernel kernel;
 };
 
-typedef std::vector<bc::ec_point> outputs_type;
+typedef std::vector<bcs::ec_point> outputs_type;
 
 } // namespace dark
 

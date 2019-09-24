@@ -2,15 +2,17 @@
 #define DARK_BLOCKCHAIN_HPP
 
 #include <ctime>
-#include <bitcoin/bitcoin.hpp>
+#include <bitcoin/system.hpp>
 #include <bitcoin/database/primitives/record_manager.hpp>
 #include <bitcoin/database/memory/file_storage.hpp>
 
 namespace dark {
 
+namespace bcs = bc::system;
+
 typedef uint32_t output_index_type;
 
-constexpr size_t blockchain_record_size = bc::ec_compressed_size + 4;
+constexpr size_t blockchain_record_size = bcs::ec_compressed_size + 4;
 
 class blockchain
 {
@@ -21,7 +23,7 @@ public:
     // non-copyable
     blockchain(const blockchain&) = delete;
 
-    output_index_type put(const bc::ec_compressed& point);
+    output_index_type put(const bcs::ec_compressed& point);
     const uint8_t* get(const output_index_type index) const;
 
     void remove(const output_index_type index);

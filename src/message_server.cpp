@@ -43,7 +43,7 @@ void message_server::accept_if_valid(json response)
     const auto tx = transaction_from_json(response);
 
     // verify outputs and inputs
-    bc::ec_point excess;
+    bcs::ec_point excess;
     bool is_init = false;
     for (const auto& output: tx.outputs)
     {
@@ -63,8 +63,8 @@ void message_server::accept_if_valid(json response)
             return;
         }
         auto result = chain_.get(input);
-        bc::ec_compressed point;
-        std::copy(result, result + bc::ec_compressed_size, point.begin());
+        bcs::ec_compressed point;
+        std::copy(result, result + bcs::ec_compressed_size, point.begin());
         excess -= point;
     }
     if (tx.kernel.excess != excess)
@@ -85,18 +85,18 @@ void message_server::accept_if_valid(json response)
     {
         const auto& rangeproof = output.rangeproof;
 
-        bc::key_rings test_rings;
+        bcs::key_rings test_rings;
         for (size_t i = 0; i < proofsize; ++i)
         {
             const auto& commitment = rangeproof.commitments[i];
             const uint64_t value_2i = std::pow(2, i);
             test_rings.push_back({
                 commitment,
-                commitment - bc::ec_scalar(value_2i) * dark::ec_point_H });
+                commitment - bcs::ec_scalar(value_2i) * dark::ec_point_H });
         }
 
         // Verify rangeproof
-        if (!bc::verify(test_rings, bc::null_hash, rangeproof.signature))
+        if (!bcs::verify(test_rings, bcs::null_hash, rangeproof.signature))
         {
             std::cout << "Rangeproof failed. Rejecting tx" << std::endl;
             return;
@@ -122,10 +122,10 @@ void message_server::accept_if_valid(json response)
         auto index = chain_.put(output.output);
         added_indexes.push_back(index);
         std::cout << "Allocated #" << index << ": "
-            << bc::encode_base16(output.output.point()) << std::endl;
+            << bcs::encode_base16(output.output.point()) << std::endl;
         response["added"].push_back({
             {"index", index},
-            {"point", bc::encode_base16(output.output.point())}
+            {"point", bcs::encode_base16(output.output.point())}
         });
     }
 

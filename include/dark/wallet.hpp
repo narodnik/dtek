@@ -1,7 +1,7 @@
 #ifndef DARK_WALLET_HPP
 #define DARK_WALLET_HPP
 
-#include <bitcoin/bitcoin.hpp>
+#include <bitcoin/system.hpp>
 #include <sqlpp11/sqlite3/sqlite3.h>
 #include <sqlpp11/sqlpp11.h>
 #include <sqlcipher/sqlite3.h>
@@ -11,13 +11,14 @@
 namespace dark {
 
 namespace sql = sqlpp::sqlite3;
+namespace bcs = bc::system;
 
-const extern bc::ec_point ec_point_H;
+const extern bcs::ec_point ec_point_H;
 
 struct selected_output
 {
     output_index_type index;
-    bc::ec_scalar key;
+    bcs::ec_scalar key;
 };
 typedef std::vector<selected_output> selected_output_list;
 
@@ -26,12 +27,12 @@ class wallet
 public:
     wallet(const std::string& filename);
 
-    void insert(const bc::ec_point& point,
-        const bc::ec_secret& secret, uint64_t value);
-    bool do_update(const bc::ec_point& point, size_t index);
+    void insert(const bcs::ec_point& point,
+        const bcs::ec_secret& secret, uint64_t value);
+    bool do_update(const bcs::ec_point& point, size_t index);
 
     bool exists(size_t index);
-    bool exists(const bc::ec_point& point);
+    bool exists(const bcs::ec_point& point);
     void remove(size_t index);
 
     uint64_t balance();

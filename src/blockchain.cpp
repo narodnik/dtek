@@ -56,14 +56,14 @@ output_index_type blockchain::next_available_record()
     return index;
 }
 
-output_index_type blockchain::put(const bc::ec_compressed& point)
+output_index_type blockchain::put(const bcs::ec_compressed& point)
 {
     const auto new_record_index = next_available_record();
     auto memory = records_->get(new_record_index);
     auto* buffer = memory->buffer();
     std::copy(point.begin(), point.end(), buffer);
     // Write time
-    auto serial = bc::make_unsafe_serializer(buffer + bc::ec_compressed_size);
+    auto serial = bcs::make_unsafe_serializer(buffer + bcs::ec_compressed_size);
     const auto time = std::time(nullptr);
     serial.write_4_bytes_little_endian(time);
     return new_record_index;

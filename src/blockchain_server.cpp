@@ -38,7 +38,7 @@ blockchain_server_request blockchain_server::receive()
 
     zframe_t* frame = zmsg_pop(message);
     assert(frame);
-    auto deserial = bc::make_unsafe_deserializer(zframe_data(frame));
+    auto deserial = bcs::make_unsafe_deserializer(zframe_data(frame));
     request.command = static_cast<blockchain_server_command>(
         deserial.read_byte());
     zframe_destroy(&frame);
@@ -63,12 +63,12 @@ void blockchain_server::reply(const blockchain_server_request& request)
         case blockchain_server_command::put:
         {
             // Deserialize request arguments
-            BITCOIN_ASSERT(request.data.size() == bc::ec_compressed_size);
-            bc::ec_compressed point;
+            BITCOIN_ASSERT(request.data.size() == bcs::ec_compressed_size);
+            bcs::ec_compressed point;
             std::copy(request.data.begin(), request.data.end(), point.begin());
             // Blockchain call
             auto index = chain_.put(point);
-            std::cout << "put(" << bc::encode_base16(point) << ") -> "
+            std::cout << "put(" << bcs::encode_base16(point) << ") -> "
                 << index << std::endl;
             // Send response
             respond(index);
@@ -78,13 +78,13 @@ void blockchain_server::reply(const blockchain_server_request& request)
         {
             // Deserialize request arguments
             BITCOIN_ASSERT(request.data.size() == 4);
-            auto deserial = bc::make_unsafe_deserializer(request.data.begin());
+            auto deserial = bcs::make_unsafe_deserializer(request.data.begin());
             auto index = deserial.read_4_bytes_little_endian();
             // Blockchain call
             auto result = chain_.get(index);
-            bc::data_slice slice(result, result + blockchain_record_size);
+            bcs::data_slice slice(result, result + blockchain_record_size);
             std::cout << "get(" << index << ") -> "
-                << bc::encode_base16(slice) << std::endl;
+                << bcs::encode_base16(slice) << std::endl;
             // Send response
             respond(slice);
             break;
@@ -93,20 +93,20 @@ void blockchain_server::reply(const blockchain_server_request& request)
         {
             // Deserialize request arguments
             BITCOIN_ASSERT(request.data.size() == 4);
-            auto deserial = bc::make_unsafe_deserializer(request.data.begin());
+            auto deserial = bcs::make_unsafe_deserializer(request.data.begin());
             auto index = deserial.read_4_bytes_little_endian();
             // Blockchain call
             chain_.remove(index);
             std::cout << "remove(" << index << ")" << std::endl;
             // Send response
-            respond(bc::data_chunk());
+            respond(bcs::data_chunk());
             break;
         }
         case blockchain_server_command::exists:
         {
             // Deserialize request arguments
             BITCOIN_ASSERT(request.data.size() == 4);
-            auto deserial = bc::make_unsafe_deserializer(request.data.begin());
+            auto deserial = bcs::make_unsafe_deserializer(request.data.begin());
             auto index = deserial.read_4_bytes_little_endian();
             // Blockchain call
             bool exists = chain_.exists(index);
@@ -131,7 +131,7 @@ void blockchain_server::reply(const blockchain_server_request& request)
     }
 }
 
-void blockchain_server::respond(bc::data_slice data)
+void blockchain_server::respond(bcs::data_slice data)
 {
     zmsg_t* message = zmsg_new();
     assert(message);
@@ -145,8 +145,8 @@ void blockchain_server::respond(bc::data_slice data)
 }
 void blockchain_server::respond(uint32_t value)
 {
-    bc::data_chunk data(4);
-    auto serial = bc::make_unsafe_serializer(data.begin());
+    bcs::data_chunk data(4);
+    auto serial = bcs::make_unsafe_serializer(data.begin());
     serial.write_4_bytes_little_endian(value);
     respond(data);
 }

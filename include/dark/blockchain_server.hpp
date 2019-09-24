@@ -1,11 +1,13 @@
 #ifndef DARK_BLOCKCHAIN_SERVER_HPP
 #define DARK_BLOCKCHAIN_SERVER_HPP
 
-#include <bitcoin/bitcoin.hpp>
+#include <bitcoin/system.hpp>
 #include <czmq.h>
 #include <dark/blockchain.hpp>
 
 namespace dark {
+
+namespace bcs = bc::system;
 
 enum class blockchain_server_command
 {
@@ -19,7 +21,7 @@ enum class blockchain_server_command
 struct blockchain_server_request
 {
     blockchain_server_command command;
-    bc::data_chunk data;
+    bcs::data_chunk data;
 };
 
 class blockchain_server
@@ -35,7 +37,7 @@ private:
     blockchain_server_request receive();
     void reply(const blockchain_server_request& request);
 
-    void respond(bc::data_slice data);
+    void respond(bcs::data_slice data);
     void respond(uint32_t value);
 
     dark::blockchain chain_;

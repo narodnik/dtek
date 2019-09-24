@@ -5,7 +5,7 @@ namespace dark {
 #define LITERAL_H \
 "02182f2b3da9f6a8538dabac0e4208bad135e93b8f4824c54f2fa1b974ece63762"
 
-const bc::ec_point ec_point_H = bc::base16_literal(LITERAL_H);
+const bcs::ec_point ec_point_H = bcs::base16_literal(LITERAL_H);
 
 sql::connection_config generate_config(const std::string& filename)
 {
@@ -28,22 +28,22 @@ wallet::wallet(const std::string& filename)
         )");
 }
 
-void wallet::insert(const bc::ec_point& point,
-    const bc::ec_secret& secret, uint64_t value)
+void wallet::insert(const bcs::ec_point& point,
+    const bcs::ec_secret& secret, uint64_t value)
 {
     dark::WalletTable wallet_table;
     db_(insert_into(wallet_table).set(
-        wallet_table.publicPoint = bc::encode_base16(point.point()),
-        wallet_table.privateKey = bc::encode_base16(secret),
+        wallet_table.publicPoint = bcs::encode_base16(point.point()),
+        wallet_table.privateKey = bcs::encode_base16(secret),
         wallet_table.value = value));
 }
-bool wallet::do_update(const bc::ec_point& point, size_t index)
+bool wallet::do_update(const bcs::ec_point& point, size_t index)
 {
     BITCOIN_ASSERT(exists(point));
     dark::WalletTable wallet_table;
     db_(update(wallet_table).set(
         wallet_table.idx = index).where(
-        wallet_table.publicPoint == bc::encode_base16(point.point())));
+        wallet_table.publicPoint == bcs::encode_base16(point.point())));
     return true;
 }
 
@@ -59,9 +59,9 @@ bool wallet::exists(size_t index)
     }
     return false;
 }
-bool wallet::exists(const bc::ec_point& point)
+bool wallet::exists(const bcs::ec_point& point)
 {
-    const auto point_string = bc::encode_base16(point.point());
+    const auto point_string = bcs::encode_base16(point.point());
     dark::WalletTable wallet_table;
     for(const auto& row: db_(
         select(all_of(wallet_table)).from(wallet_table).unconditionally()))
@@ -105,8 +105,8 @@ selected_output_list wallet::select_outputs(
             wallet_table.idx.is_not_null())))
     {
         uint32_t index = row.idx;
-        bc::ec_secret secret;
-        bool rc = bc::decode_base16(secret, row.privateKey);
+        bcs::ec_secret secret;
+        bool rc = bcs::decode_base16(secret, row.privateKey);
         BITCOIN_ASSERT(rc);
         selected.push_back(selected_output{
             index,

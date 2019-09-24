@@ -1,4 +1,4 @@
-#include <bitcoin/bitcoin.hpp>
+#include <bitcoin/system.hpp>
 
 #include <thread>
 #include <boost/optional.hpp>
@@ -16,9 +16,10 @@
 #include <dark/wallet.hpp>
 #include "ui_darkwallet.h"
 
+namespace bcs = bc::system;
 using json = nlohmann::json;
 
-typedef std::unordered_map<uint32_t, bc::ec_scalar> keys_map_type;
+typedef std::unordered_map<uint32_t, bcs::ec_scalar> keys_map_type;
 
 typedef std::function<void ()> update_balance_callback;
 
@@ -36,9 +37,9 @@ void calc(uint32_t value_1, uint32_t value_2)
         << value_2 << " H" << std::endl;
 
     const auto result =
-        bc::ec_scalar(value_1) * bc::ec_point::G +
-        bc::ec_scalar(value_2) * dark::ec_point_H;
-    std::cout << bc::encode_base16(result.point()) << std::endl;
+        bcs::ec_scalar(value_1) * bcs::ec_point::G +
+        bcs::ec_scalar(value_2) * dark::ec_point_H;
+    std::cout << bcs::encode_base16(result.point()) << std::endl;
     std::cout << std::endl;
 
     dark::blockchain chain;
@@ -54,14 +55,14 @@ void show_balance(dark::wallet& wallet)
 void do_update_balance(dark::wallet& wallet, QLabel* balance_label)
 {
     auto balance_string = QString::fromStdString(
-        bc::encode_base10(wallet.balance(), 8));
+        bcs::encode_base10(wallet.balance(), 8));
     balance_label->setText(balance_string);
 }
 
 struct assign_output_result
 {
-    bc::ec_scalar secret;
-    bc::ec_point point;
+    bcs::ec_scalar secret;
+    bcs::ec_point point;
     dark::transaction_rangeproof rangeproof;
 };
 
@@ -69,10 +70,10 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
 {
     stream << "assign_output(" << value << ")" << std::endl;
 
-    typedef std::array<bc::ec_scalar, dark::proofsize> subkeys_list;
+    typedef std::array<bcs::ec_scalar, dark::proofsize> subkeys_list;
 
     subkeys_list subkeys;
-    auto secret = bc::ec_scalar::zero;
+    auto secret = bcs::ec_scalar::zero;
 
     // Create private key by summing 64 sub private keys
     // The 64 subkeys will be used for constructing the rangeproof
@@ -82,19 +83,19 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
         secret += subkey;
     }
     BITCOIN_ASSERT(secret);
-    stream << "secret: " << bc::encode_base16(secret.secret()) << std::endl;
+    stream << "secret: " << bcs::encode_base16(secret.secret()) << std::endl;
 
     auto point =
-        secret * bc::ec_point::G + bc::ec_scalar(value) * dark::ec_point_H;
+        secret * bcs::ec_point::G + bcs::ec_scalar(value) * dark::ec_point_H;
 
-    stream << "point: " << bc::encode_base16(point.point()) << std::endl;
+    stream << "point: " << bcs::encode_base16(point.point()) << std::endl;
 
     // [d_1 G + v_(0|1) H] + [d_2 G + v_(0|2) H] + [d_3 G + v_(0|4) H] + ...
     dark::transaction_rangeproof rangeproof;
     rangeproof.commitments.reserve(dark::proofsize);
     // Used for making the signature
-    bc::key_rings rangeproof_rings;
-    bc::secret_list rangeproof_secrets, rangeproof_salts;
+    bcs::key_rings rangeproof_rings;
+    bcs::secret_list rangeproof_secrets, rangeproof_salts;
     uint64_t value_checker = 0;
     for (size_t i = 0; i < dark::proofsize; ++i)
     {
@@ -102,10 +103,10 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
         const auto& subkey = subkeys[i];
 
         // v = 0
-        const auto public_key = subkey * bc::ec_point::G;
+        const auto public_key = subkey * bcs::ec_point::G;
         // v = 2^i
         uint64_t value_2i = std::pow(2, i);
-        const auto value_point = bc::ec_scalar(value_2i) * dark::ec_point_H;
+        const auto value_point = bcs::ec_scalar(value_2i) * dark::ec_point_H;
 
         if (is_bit_set(value, i))
         {
@@ -139,8 +140,8 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
     stream << "Assigned: " << value_checker << std::endl;
 
     // Safety check
-    bc::ec_compressed result;
-    bc::ec_sum(result, rangeproof.commitments);
+    bcs::ec_compressed result;
+    bcs::ec_sum(result, rangeproof.commitments);
     BITCOIN_ASSERT(point.point() == result);
 
     // Check each public key has a correct secret key
@@ -155,27 +156,27 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
         BITCOIN_ASSERT(ring.size() == rangeproof.signature.proofs[i].size());
         BITCOIN_ASSERT(ring.size() == 2);
 
-        const auto key = secret * bc::ec_point::G;
+        const auto key = secret * bcs::ec_point::G;
         BITCOIN_ASSERT(key.point() == ring[0] || key.point() == ring[1]);
     }
 
-    bool rc = bc::sign(rangeproof.signature, rangeproof_secrets,
-        rangeproof_rings, bc::null_hash, rangeproof_salts);
+    bool rc = bcs::sign(rangeproof.signature, rangeproof_secrets,
+        rangeproof_rings, bcs::null_hash, rangeproof_salts);
     BITCOIN_ASSERT(rc);
 
     BITCOIN_ASSERT(rangeproof.commitments.size() == dark::proofsize);
-    bc::key_rings test_rings;
+    bcs::key_rings test_rings;
     for (size_t i = 0; i < dark::proofsize; ++i)
     {
         const auto& commitment = rangeproof.commitments[i];
         const uint64_t value_2i = std::pow(2, i);
         test_rings.push_back({
             commitment,
-            commitment - bc::ec_scalar(value_2i) * dark::ec_point_H });
+            commitment - bcs::ec_scalar(value_2i) * dark::ec_point_H });
     }
 
     // Verify rangeproof
-    rc = bc::verify(test_rings, bc::null_hash, rangeproof.signature);
+    rc = bcs::verify(test_rings, bcs::null_hash, rangeproof.signature);
     BITCOIN_ASSERT(rc);
 
     stream << "Rangeproof checks out." << std::endl;
@@ -186,18 +187,18 @@ assign_output_result assign_output(uint64_t value, std::ostream& stream)
 void add_output(dark::wallet& wallet, uint64_t value)
 {
     // Create private key
-    bc::ec_secret secret;
-    bc::pseudo_random::fill(secret);
+    bcs::ec_secret secret;
+    bcs::pseudo_random::fill(secret);
 
-    auto value_scalar = bc::ec_scalar(value);
+    auto value_scalar = bcs::ec_scalar(value);
 
-    std::cout << "secret: " << bc::encode_base16(secret) << std::endl;
-    std::cout << "scalar: " << bc::encode_base16(value_scalar.secret())
+    std::cout << "secret: " << bcs::encode_base16(secret) << std::endl;
+    std::cout << "scalar: " << bcs::encode_base16(value_scalar.secret())
         << std::endl;
 
-    auto point = secret * bc::ec_point::G + value_scalar * dark::ec_point_H;
+    auto point = secret * bcs::ec_point::G + value_scalar * dark::ec_point_H;
 
-    std::cout << "point: " << bc::encode_base16(point.point()) << std::endl;
+    std::cout << "point: " << bcs::encode_base16(point.point()) << std::endl;
 
     // Allocate index
     // Add to blockchain
@@ -233,8 +234,8 @@ void final_update_wallet(dark::wallet& wallet,
     {
         auto index = added["index"].get<uint32_t>();
         auto point_string = added["point"].get<std::string>();
-        bc::ec_compressed point;
-        bool rc = bc::decode_base16(point, point_string);
+        bcs::ec_compressed point;
+        bool rc = bcs::decode_base16(point, point_string);
         BITCOIN_ASSERT(rc);
         if (wallet.exists(point))
         {
@@ -318,13 +319,13 @@ void send_money_2(const std::string& username,
     update_balance_callback update_balance)
 {
     auto response_keys = json::parse(response_other);
-    bc::ec_compressed other_witness_point;
-    bool rc = bc::decode_base16(
+    bcs::ec_compressed other_witness_point;
+    bool rc = bcs::decode_base16(
         other_witness_point, response_keys["witness_i"].get<std::string>());
     BITCOIN_ASSERT(rc);
     stream << "Received witness_i of: "
-        << bc::encode_base16(other_witness_point) << std::endl;
-    const bc::ec_point witness_2 = other_witness_point;
+        << bcs::encode_base16(other_witness_point) << std::endl;
+    const bcs::ec_point witness_2 = other_witness_point;
 
     const uint64_t balance = wallet.balance();
     BITCOIN_ASSERT(amount <= balance);
@@ -364,36 +365,36 @@ void send_money_2(const std::string& username,
     }
 
     // compute excess
-    auto excess_secret = bc::ec_scalar::zero;
+    auto excess_secret = bcs::ec_scalar::zero;
     for (const auto& row: selected)
         excess_secret -= row.key;
 
     if (change_output)
         excess_secret += change_output->secret;
 
-    tx.kernel.excess = excess_secret * bc::ec_point::G;
+    tx.kernel.excess = excess_secret * bcs::ec_point::G;
     stream << "Excess: "
-        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+        << bcs::encode_base16(tx.kernel.excess.point()) << std::endl;
 
     // compute signature
     const auto k = dark::new_key();
-    const auto witness_1 = k * bc::ec_point::G;
+    const auto witness_1 = k * bcs::ec_point::G;
     const auto combined_witness = witness_1 + witness_2;
     tx.kernel.signature = dark::sign(excess_secret, k, combined_witness);
 
     // verify signature for correctness
     stream << "  (R, s) = ("
-        << bc::encode_base16(tx.kernel.signature.witness.point()) << ", "
-        << bc::encode_base16(tx.kernel.signature.response.secret())
+        << bcs::encode_base16(tx.kernel.signature.witness.point()) << ", "
+        << bcs::encode_base16(tx.kernel.signature.response.secret())
         << ")" << std::endl;
     stream << "  P = "
-        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+        << bcs::encode_base16(tx.kernel.excess.point()) << std::endl;
     stream << "  R_1 = "
-        << bc::encode_base16(witness_1.point()) << std::endl;
+        << bcs::encode_base16(witness_1.point()) << std::endl;
     stream << "  R_2 = "
-        << bc::encode_base16(witness_2.point()) << std::endl;
+        << bcs::encode_base16(witness_2.point()) << std::endl;
     stream << "  R = "
-        << bc::encode_base16(combined_witness.point()) << std::endl;
+        << bcs::encode_base16(combined_witness.point()) << std::endl;
     BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess,
         combined_witness));
     stream << "Signature computed and verified" << std::endl;
@@ -409,16 +410,16 @@ void send_money_2(const std::string& username,
             {"outputs", json::array()},
             {"kernel", {
                 {"fee", tx.kernel.fee},
-                {"excess", bc::encode_base16(tx.kernel.excess.point())},
+                {"excess", bcs::encode_base16(tx.kernel.excess.point())},
                 {"signature", {
-                    {"witness", bc::encode_base16(
+                    {"witness", bcs::encode_base16(
                         tx.kernel.signature.witness.point())},
-                    {"response", bc::encode_base16(
+                    {"response", bcs::encode_base16(
                         tx.kernel.signature.response.secret())}
                 }}
         }}}},
         {"amount", amount},
-        {"witness_1", bc::encode_base16(witness_1.point())}
+        {"witness_1", bcs::encode_base16(witness_1.point())}
     };
     for (const auto input: tx.inputs)
     {
@@ -427,7 +428,7 @@ void send_money_2(const std::string& username,
     for (const auto& output: tx.outputs)
     {
         send_json["tx"]["outputs"].push_back({
-            {"output", bc::encode_base16(output.output.point())},
+            {"output", bcs::encode_base16(output.output.point())},
             {"rangeproof", dark::rangeproof_to_json(output.rangeproof)}
         });
     }
@@ -467,17 +468,17 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     uint64_t amount = response["amount"].get<uint64_t>();
     const uint32_t tx_id = response["tx"]["id"].get<uint32_t>();
 
-    bc::ec_compressed witness_1_point;
-    bool rc = bc::decode_base16(witness_1_point, response["witness_1"]);
+    bcs::ec_compressed witness_1_point;
+    bool rc = bcs::decode_base16(witness_1_point, response["witness_1"]);
     BITCOIN_ASSERT(rc);
-    const bc::ec_point witness_1 = witness_1_point;
+    const bcs::ec_point witness_1 = witness_1_point;
     stream << "Witness 1: "
-        << bc::encode_base16(witness_1.point()) << std::endl;
+        << bcs::encode_base16(witness_1.point()) << std::endl;
 
     const auto salt = keys_map[tx_id];
-    const auto witness_2 = salt * bc::ec_point::G;
+    const auto witness_2 = salt * bcs::ec_point::G;
     stream << "Witness 2: "
-        << bc::encode_base16(witness_2.point()) << std::endl;
+        << bcs::encode_base16(witness_2.point()) << std::endl;
     const auto combined_witness = witness_1 + witness_2;
 
     // create new output
@@ -487,24 +488,24 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
 
     // compute excess
     const auto excess_secret = output.secret;
-    const auto excess = excess_secret * bc::ec_point::G;
+    const auto excess = excess_secret * bcs::ec_point::G;
     // compute signature
     const auto signature = dark::sign(excess_secret, salt, combined_witness);
     BITCOIN_ASSERT(dark::verify(signature, excess, combined_witness));
 
     // verify signature for correctness
     stream << "  (R, s) = ("
-        << bc::encode_base16(tx.kernel.signature.witness.point()) << ", "
-        << bc::encode_base16(tx.kernel.signature.response.secret())
+        << bcs::encode_base16(tx.kernel.signature.witness.point()) << ", "
+        << bcs::encode_base16(tx.kernel.signature.response.secret())
         << ")" << std::endl;
     stream << "  P = "
-        << bc::encode_base16(tx.kernel.excess.point()) << std::endl;
+        << bcs::encode_base16(tx.kernel.excess.point()) << std::endl;
     stream << "  R_1 = "
-        << bc::encode_base16(witness_1.point()) << std::endl;
+        << bcs::encode_base16(witness_1.point()) << std::endl;
     stream << "  R_2 = "
-        << bc::encode_base16(witness_2.point()) << std::endl;
+        << bcs::encode_base16(witness_2.point()) << std::endl;
     stream << "  R = "
-        << bc::encode_base16(combined_witness.point()) << std::endl;
+        << bcs::encode_base16(combined_witness.point()) << std::endl;
     BITCOIN_ASSERT(dark::verify(tx.kernel.signature, tx.kernel.excess,
         combined_witness));
     
@@ -530,11 +531,11 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
             {"outputs", json::array()},
             {"kernel", {
                 {"fee", tx.kernel.fee},
-                {"excess", bc::encode_base16(tx.kernel.excess.point())},
+                {"excess", bcs::encode_base16(tx.kernel.excess.point())},
                 {"signature", {
-                    {"witness", bc::encode_base16(
+                    {"witness", bcs::encode_base16(
                         tx.kernel.signature.witness.point())},
-                    {"response", bc::encode_base16(
+                    {"response", bcs::encode_base16(
                         tx.kernel.signature.response.secret())}
                 }}
         }}}}
@@ -546,13 +547,13 @@ void receive_money(dark::wallet& wallet, dark::message_client& client,
     for (const auto& output: tx.outputs)
     {
         send_json["tx"]["outputs"].push_back({
-            {"output", bc::encode_base16(output.output.point())},
+            {"output", bcs::encode_base16(output.output.point())},
             {"rangeproof", dark::rangeproof_to_json(output.rangeproof)}
         });
     }
 
     // verify outputs and inputs
-    bc::ec_point re_excess;
+    bcs::ec_point re_excess;
     bool is_init = false;
     for (const auto& output: tx.outputs)
     {
@@ -610,8 +611,8 @@ void show_help()
 
 bool write_point(const std::string& point_string)
 {
-    bc::ec_compressed point;
-    if (!bc::decode_base16(point, point_string))
+    bcs::ec_compressed point;
+    if (!bcs::decode_base16(point, point_string))
     {
         std::cerr << "Error loading point." << std::endl;
         return false;
@@ -635,7 +636,7 @@ void read_all()
             continue;
         auto result = chain.get(i);
         std::cout << "#" << i << " "
-            << bc::encode_base16(result.point) << " "
+            << bcs::encode_base16(result.point) << " "
             << std::asctime(std::localtime(&result.time)) << std::endl;
     }
 }
@@ -658,7 +659,7 @@ void set_commit_table(QTableWidget* table)
 
         auto result = chain.get(i);
         QString point_string = QString::fromStdString(
-            bc::encode_base16(result.point));
+            bcs::encode_base16(result.point));
         QTableWidgetItem *point_item = new QTableWidgetItem(point_string);
         table->setItem(index, 0, point_item);
 
@@ -668,7 +669,7 @@ void set_commit_table(QTableWidget* table)
         table->setItem(index, 1, time_item);
 
         std::cout << "#" << i << " "
-            << bc::encode_base16(result.point) << " "
+            << bcs::encode_base16(result.point) << " "
             << std::asctime(std::localtime(&result.time)) << std::endl;
     }
 }
@@ -848,7 +849,7 @@ int main(int argc, char** argv)
         auto amount_string = ui.amount_lineedit->text().toStdString();
         uint64_t amount;
         if (amount_string.empty() ||
-            !bc::decode_base10(amount, amount_string, 8))
+            !bcs::decode_base10(amount, amount_string, 8))
         {
             popup_error("Unable to decode amount. Try again.");
             return;
@@ -870,13 +871,13 @@ int main(int argc, char** argv)
         auto tx_id = response["tx"]["id"].get<uint32_t>();
         const auto salt = dark::new_key();
         keys_map[tx_id] = salt;
-        const auto witness = salt * bc::ec_point::G;
+        const auto witness = salt * bcs::ec_point::G;
         json send_json = {
             {"command", "request_send_reply"},
             {"tx", {
                 {"id", tx_id}
             }},
-            {"witness_i", bc::encode_base16(witness.point())}
+            {"witness_i", bcs::encode_base16(witness.point())}
         };
         stream << "Sending our key: " << send_json.dump(4) << std::endl;
         client.send(send_json.dump());
